@@ -8,7 +8,7 @@ use Bitrix24Api\Config\Credential;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use JetBrains\PhpStorm\ArrayShape;
-use Monolog\Handler\StreamHandler;
+use Monolog\Handler\RotatingFileHandler;
 use Monolog\Logger;
 
 /**
@@ -32,12 +32,14 @@ class B24Api
     {
         if (!empty($memberId)) {
             $this->memberId = $memberId;
+            $settings = static::getSettings();
+            $dataClientEndpoint = parse_url($settings['client_endpoint']);
 
             $this->log = new Logger('name');
-            $this->log->pushHandler(new StreamHandler(storage_path('logs/b24api/' . date('Y-m') . '/' . date('d') . '/' . $memberId . '/' . date('H') . '.log'), Logger::DEBUG));
+            $this->log->pushHandler(new RotatingFileHandler(storage_path('logs/b24api/' . $dataClientEndpoint['host'] . '-' . $memberId . '/b24api.log'), 14));
 
             $application = new \Bitrix24Api\Config\Application(getenv('B24API_CLIENT_ID'), getenv('B24API_CLIENT_SECRET'));
-            $settings = static::getSettings();
+
             if (!empty($settings)) {
                 $credential = \Bitrix24Api\Config\Credential::initFromArray($settings);
                 $config = new \Bitrix24Api\Config\Config(null, $application, $credential, $this->log);

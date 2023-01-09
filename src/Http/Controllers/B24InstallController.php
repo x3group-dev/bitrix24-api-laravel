@@ -12,7 +12,12 @@ class B24InstallController extends Controller
 {
     use ValidatesRequests;
 
-    public function install(Request $request)
+    /**
+     * Данный метод следует скопировать в свой контроллер и дополнить установку согласно логики.
+     * @param Request $request
+     * @return \Illuminate\Contracts\View\View|\Illuminate\Contracts\View\Factory|string|\Illuminate\Contracts\Foundation\Application
+     */
+    public function install(Request $request): \Illuminate\Contracts\View\View|\Illuminate\Contracts\View\Factory|string|\Illuminate\Contracts\Foundation\Application
     {
         $memberId = null;
         if ($request->has('auth') && !empty($request->get('auth')['member_id']))
@@ -23,15 +28,18 @@ class B24InstallController extends Controller
 
         try {
             $resultInstall = B24Api::install($memberId, $request);
-            if ($resultInstall['install'] == true) {
+            if ($resultInstall['install'] === true) {
                 if ($resultInstall['rest_only']) {
+                    //todo: some code
                     return '';
                 } else {
+                    //todo: some code
                     return view('b24api/install', []);
                 }
             }
         } catch (\Exception $exception) {
-
+            return view('b24api/install-fail', []);
         }
+        return view('b24api/install-fail', []);
     }
 }
