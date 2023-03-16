@@ -11,6 +11,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Router;
+use X3Group\B24Api\Http\Middleware\B24AuthApp;
 
 class B24ApiServiceProvider extends ServiceProvider
 {
@@ -58,6 +59,18 @@ class B24ApiServiceProvider extends ServiceProvider
             B24AuthApi::class
         ]);
 
+        /**
+         * Запрос данных из приложения, пользователь должен быть авторизован в момент запроса, memberId берется из сессии. Отключена проверка csrf
+         */
+        $router->middlewareGroup('b24appUserCall', [
+            \App\Http\Middleware\EncryptCookies::class,
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+            \Illuminate\Session\Middleware\StartSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            B24AuthApp::class
+        ]);
+
         $router->group(['middleware' => 'b24app'], function () {
             if (file_exists(base_path('routes/b24app.php')))
                 $this->loadRoutesFrom(base_path('routes/b24app.php'));
@@ -71,6 +84,11 @@ class B24ApiServiceProvider extends ServiceProvider
         $router->group(['middleware' => 'b24appUserApiCall'], function () {
             if (file_exists(base_path('routes/b24appUserApiCall.php')))
                 $this->loadRoutesFrom(base_path('routes/b24appUserApiCall.php'));
+        });
+
+        $router->group(['middleware' => 'b24appUserCall'], function () {
+            if (file_exists(base_path('routes/b24appUserCall.php')))
+                $this->loadRoutesFrom(base_path('routes/b24appUserCall.php'));
         });
 
         $application->make('config')->set('auth.guards.web', [
@@ -103,6 +121,7 @@ class B24ApiServiceProvider extends ServiceProvider
             __DIR__ . '/../routes/b24app.php' => base_path('routes/b24app.php'),
             __DIR__ . '/../routes/b24appUser.php' => base_path('routes/b24appUser.php'),
             __DIR__ . '/../routes/b24appUserApiCall.php' => base_path('routes/b24appUserApiCall.php'),
+            __DIR__ . '/../routes/b24appUserCall.php' => base_path('routes/b24appUserCall.php'),
             __DIR__ . '/../resources/views' => resource_path('views/b24api'),
         ],'routes');
 
