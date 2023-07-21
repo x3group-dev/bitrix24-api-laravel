@@ -12,6 +12,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Router;
 use X3Group\B24Api\Http\Middleware\B24AuthUser;
+use X3Group\B24Api\Http\Middleware\B24AuthApp;
 
 class B24ApiServiceProvider extends ServiceProvider
 {
@@ -70,7 +71,7 @@ class B24ApiServiceProvider extends ServiceProvider
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            B24AuthUser::class
+            B24AuthApp::class
         ]);
 
         $router->group(['middleware' => 'b24app'], function () {
@@ -128,6 +129,7 @@ class B24ApiServiceProvider extends ServiceProvider
             __DIR__ . '/../routes/b24appUser.php' => base_path('routes/b24appUser.php'),
             __DIR__ . '/../routes/b24appUserCall.php' => base_path('routes/b24appUserCall.php'),
             __DIR__ . '/../routes/b24appUserApiCall.php' => base_path('routes/b24appUserApiCall.php'),
+            __DIR__ . '/../routes/b24appUserCall.php' => base_path('routes/b24appUserCall.php'),
             __DIR__ . '/../resources/views' => resource_path('views/b24api'),
         ],'routes');
 
