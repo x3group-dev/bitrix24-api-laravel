@@ -5,6 +5,8 @@ namespace X3Group\B24Api;
 
 use Bitrix24Api\ApiClient;
 use Bitrix24Api\Config\Credential;
+use Bitrix24Api\Exceptions\ApiException;
+use Bitrix24Api\Exceptions\ApplicationNotInstalled;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use JetBrains\PhpStorm\ArrayShape;
@@ -130,6 +132,29 @@ class B24Api
                 $api->saveMemberData($credential->toArray());
             });
             $b24Api->getNewAccessToken();
+        }
+    }
+
+    /**
+     * Функция проверяет статус приложения на порталах
+     * если приложение удалено, удаляем запись в таблице токенов
+     * @return void
+     */
+    public static function checkStatus(): void
+    {
+        $model = new \X3Group\B24Api\Models\B24Api;
+        $dataApiB24 = $model->get();
+        foreach ($dataApiB24 as $b24) {
+            $api = (new self($b24->member_id));
+            $b24Api = $api->getApi();
+            try {
+                $appInfo = $b24Api->request('app.info');
+            } catch (ApplicationNotInstalled $exception) {
+                //todo: remove delaytasks
+                $b24->delete();
+            } catch (ApiException $e) {
+
+            }
         }
     }
 

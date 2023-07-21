@@ -2,14 +2,12 @@
 
 namespace X3Group\B24Api\Http\Controllers;
 
-use Bitrix24Api\ApiClient;
+use App\Http\Controllers\Controller;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Foundation\Validation\ValidatesRequests;
-use X3Group\B24Api\B24Api;
-use X3Group\B24Api\Classes\QueryStatMonth;
-use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use X3Group\B24Api\Classes\QueryStatMonth;
 
 class B24Controller extends Controller
 {
@@ -18,8 +16,6 @@ class B24Controller extends Controller
     protected string $memberId;
     protected int $userId;
     protected string $eventToken;
-//    protected ApiClient $apiClient;
-//    protected B24Api $api;
 
     public function __construct(Request $request)
     {
@@ -45,8 +41,6 @@ class B24Controller extends Controller
 
         if ($this->memberId) {
             QueryStatMonth::add($this->memberId);
-//            $this->api = new B24Api($this->memberId);
-//            $this->apiClient = $this->api->getApi();
         }
     }
 
@@ -57,22 +51,8 @@ class B24Controller extends Controller
 
     public function index(Request $request)
     {
-//        $this->api = new B24Api($this->memberId);
-//        $this->apiClient = $this->api->getApi();
-
-//        $this->apiClient->request('task.automation.trigger.add', ['FIELDS' => ['CODE' => 'extask_comment_add', 'NAME' => 'Добавлена задача из внешнего КП']]);
         return view('b24api/index', []);
     }
-
-//    public function getApi(): \X3Group\B24Api\B24Api
-//    {
-//        return $this->api;
-//    }
-//
-//    public function getApiClient(): ApiClient
-//    {
-//        return $this->apiClient;
-//    }
 
     /**
      * @return array|mixed|string|null

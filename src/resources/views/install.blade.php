@@ -11,6 +11,6 @@
     </script>
 </head>
 <body>
-installation has been finished
+Установка успешно завершена
 </body>
 </html>
