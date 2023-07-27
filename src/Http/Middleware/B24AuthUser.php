@@ -28,9 +28,6 @@ class B24AuthUser
         }
 
         if (!auth()->check() || (auth()->user()->getMemberId() != $memberId)) {
-            if (!$request->post('member_id') && !$request->post('AUTH_ID'))
-                return response()->json(['error' => 'memberId or AUTH_ID is null'], 406);
-
             try {
                 $api = new B24ApiUserRequest($memberId, $accessToken, '', '');
                 if ($profile = $api->getProfile()) {
@@ -72,7 +69,6 @@ class B24AuthUser
                 return response()->json(['error' => $e->getMessage()], 401);
             }
         }
-
         return $next($request);
     }
 }

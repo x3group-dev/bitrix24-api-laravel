@@ -12,7 +12,6 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Router;
 use X3Group\B24Api\Http\Middleware\B24AuthUser;
-use X3Group\B24Api\Http\Middleware\B24AuthApp;
 
 class B24ApiServiceProvider extends ServiceProvider
 {
@@ -34,8 +33,9 @@ class B24ApiServiceProvider extends ServiceProvider
         ]);
 
         /**
-         * Первичный вход на приложение, сохранение авторизации пользователя, авторизация его в рамках приложения
-         * Хождение в рамках приложения с отключенной проверкой CsrfToken, если пользователь авторизован
+         * Первичный вход на приложение, сохранение авторизации пользователя (laravel), авторизация его в рамках приложения и laravel
+         * При включенных ThirdParty cookie авторизация б24 берется из сессии
+         * Хождение в рамках приложения с отключенной проверкой CsrfToken
          * Для приложений с интерфейсом
          */
         $router->middlewareGroup('b24appUser', [
@@ -48,8 +48,12 @@ class B24ApiServiceProvider extends ServiceProvider
         ]);
 
         /**
-         * Запросы из самого приложения, пользователь должен быть авторизован в момент запроса
+         * @deprecated
+         * подлежит удалению
+         * не работает при запрещенных ThirdParty cookie
+         * Запросы из фронта приложения, пользователь должен быть авторизован laravel в момент запроса
          */
+
         $router->middlewareGroup('b24appUserApiCall', [
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
@@ -61,17 +65,17 @@ class B24ApiServiceProvider extends ServiceProvider
         ]);
 
         /**
-         * Запросы из самого приложения с передачей авторизации через header X-b24api-access-token
+         * Запросы из фронта приложения с передачей авторизации через header X-b24api-access-token X-b24api-domain X-b24api-member-id
          * авторизует пользователя и делает запрос от него
          */
-        $router->middlewareGroup('b24appUserCall', [
+        $router->middlewareGroup('b24appFrontRequest', [
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-            \App\Http\Middleware\VerifyCsrfToken::class,
+//            \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            B24AuthApp::class
+            B24AuthUser::class
         ]);
 
         $router->group(['middleware' => 'b24app'], function () {
@@ -89,9 +93,9 @@ class B24ApiServiceProvider extends ServiceProvider
                 $this->loadRoutesFrom(base_path('routes/b24appUserApiCall.php'));
         });
 
-        $router->group(['middleware' => 'b24appUserCall'], function () {
-            if (file_exists(base_path('routes/b24appUserCall.php')))
-                $this->loadRoutesFrom(base_path('routes/b24appUserCall.php'));
+        $router->group(['middleware' => 'b24appFrontRequest'], function () {
+            if (file_exists(base_path('routes/b24appFrontRequest.php')))
+                $this->loadRoutesFrom(base_path('routes/b24appFrontRequest.php'));
         });
 
         $application->make('config')->set('auth.guards.web', [
@@ -127,9 +131,8 @@ class B24ApiServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../routes/b24app.php' => base_path('routes/b24app.php'),
             __DIR__ . '/../routes/b24appUser.php' => base_path('routes/b24appUser.php'),
-            __DIR__ . '/../routes/b24appUserCall.php' => base_path('routes/b24appUserCall.php'),
-            __DIR__ . '/../routes/b24appUserApiCall.php' => base_path('routes/b24appUserApiCall.php'),
-            __DIR__ . '/../routes/b24appUserCall.php' => base_path('routes/b24appUserCall.php'),
+//            __DIR__ . '/../routes/b24appUserApiCall.php' => base_path('routes/b24appUserApiCall.php'),
+            __DIR__ . '/../routes/b24appFrontRequest.php' => base_path('routes/b24appFrontRequest.php'),
             __DIR__ . '/../resources/views' => resource_path('views/b24api'),
         ],'routes');
 
