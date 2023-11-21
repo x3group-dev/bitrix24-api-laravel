@@ -37,8 +37,12 @@ class B24Api
             $settings = static::getSettings();
             $dataClientEndpoint = parse_url($settings['client_endpoint']);
 
+            $logMaxFiles = intval(getenv('B24API_LOG_MAX_FILES'));
+            if ($logMaxFiles == 0)
+                $logMaxFiles = 3;
+
             $this->log = new Logger('name');
-            $this->log->pushHandler(new RotatingFileHandler(storage_path('logs/b24api/' . $dataClientEndpoint['host'] . '-' . $memberId . '/b24api.log'), 14));
+            $this->log->pushHandler(new RotatingFileHandler(storage_path('logs/b24api/' . $dataClientEndpoint['host'] . '-' . $memberId . '/b24api.log'), $logMaxFiles));
 
             $application = new \Bitrix24Api\Config\Application(getenv('B24API_CLIENT_ID'), getenv('B24API_CLIENT_SECRET'));
 
