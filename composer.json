@@ -14,19 +14,16 @@
             "role": "Developer"
         }
     ],
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "autoload": {
         "psr-4": {
             "X3Group\\B24Api\\": "src"
         }
     },
     "require": {
-        "x3group-dev/bitrix24-api": "dev-master"
+        "x3group-dev/bitrix24-api": "^v1.0.0"
     },
     "extra": {
-        "branch-alias": {
-            "dev-master": "1.x-dev"
-        },
         "laravel": {
             "providers": [
                 "X3Group\\B24Api\\Providers\\B24ApiServiceProvider"
