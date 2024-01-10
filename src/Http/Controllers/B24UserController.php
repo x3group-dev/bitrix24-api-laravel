@@ -20,9 +20,12 @@ class B24UserController extends B24Controller
     protected ApiClient $apiClient;
     protected B24Api $api;
 
+    /**
+     * @throws \Exception
+     */
     public function __construct(Request $request)
     {
         parent::__construct($request);
-        $this->api = new B24ApiUser($this->memberId);
+        $this->api = new B24ApiUser($this->memberId, $this->userId);
     }
 }

@@ -21,7 +21,7 @@
         }
     },
     "require": {
-        "x3group-dev/bitrix24-api": "^v1.0.0"
+        "x3group-dev/bitrix24-api": "^1.2.5"
     },
     "extra": {
         "laravel": {
