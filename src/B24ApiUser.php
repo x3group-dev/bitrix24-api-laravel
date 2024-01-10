@@ -40,7 +40,7 @@ class B24ApiUser extends B24Api
      */
     public static function renewTokens(): void
     {
-        if (getenv('APP_DEBUG'))
+        if (env('APP_DEBUG'))
             return;
 
         $dataApiB24 = \X3Group\B24Api\Models\B24User::where('expires', '<=', time() - (20 * 3600 * 24))->orWhere('expires', null)->get();
