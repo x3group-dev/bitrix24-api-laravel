@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use JetBrains\PhpStorm\ArrayShape;
 use Monolog\Handler\RotatingFileHandler;
 use Monolog\Logger;
+use X3Group\B24Api\Models\B24User;
 
 /**
  * Основной класс обертка для общения с б24
@@ -155,6 +156,7 @@ class B24Api
                 $appInfo = $b24Api->request('app.info');
             } catch (ApplicationNotInstalled $exception) {
                 //todo: remove delaytasks
+                B24User::query()->where('member_id', $b24->member_id)->delete();
                 $b24->delete();
             } catch (ApiException $e) {
 
