@@ -156,10 +156,7 @@ class B24Api
                 $appInfo = $b24Api->request('app.info');
             } catch (ApplicationNotInstalled $exception) {
                 //todo: remove delaytasks
-                $b24user = B24User::query()->where('member_id', $b24->member_id)->first();
-                if ($b24user) {
-                    $b24user->delete();
-                }
+                B24User::query()->where('member_id', $b24->member_id)->delete();
                 $b24->delete();
             } catch (ApiException $e) {
 
