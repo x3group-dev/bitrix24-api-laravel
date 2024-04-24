@@ -2,6 +2,7 @@
 
 namespace X3Group\B24Api\Providers;
 
+use Bitrix24Api\ApiClient;
 use X3Group\B24Api\B24Api;
 use X3Group\B24Api\B24ApiUser;
 use X3Group\B24Api\Http\Middleware\B24App;
@@ -137,5 +138,18 @@ class B24ApiServiceProvider extends ServiceProvider
         ],'routes');
 
         $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations');
+    }
+
+    public function register(): void
+    {
+        $this->app->bind(ApiClient::class, function () {
+            if (auth()->user()) {
+                $memberId = auth()->user()->getMemberId();
+            } else {
+                $memberId = request()->input('auth')['member_id'];
+            }
+
+            return (new B24Api($memberId))->getApi();
+        });
     }
 }
