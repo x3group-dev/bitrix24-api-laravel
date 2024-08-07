@@ -23,7 +23,9 @@ class B24User extends Authenticatable
         'domain',
         'expires',
         'expires_in',
-        'is_admin'
+        'is_admin',
+
+        'error_update',
     ];
     protected $hidden = [
         'password',

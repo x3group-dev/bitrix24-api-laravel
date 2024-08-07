@@ -23,6 +23,8 @@ class B24Api extends Model
         'user_id',
         'status',
         'scope',
-        'application_token'
+        'application_token',
+
+        'error_update',
     ];
 }

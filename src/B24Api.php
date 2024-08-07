@@ -7,6 +7,7 @@ use Bitrix24Api\ApiClient;
 use Bitrix24Api\Config\Credential;
 use Bitrix24Api\Exceptions\ApiException;
 use Bitrix24Api\Exceptions\ApplicationNotInstalled;
+use Bitrix24Api\Exceptions\ExpiredRefreshToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use JetBrains\PhpStorm\ArrayShape;
@@ -129,14 +130,29 @@ class B24Api
         if (env('APP_DEBUG'))
             return;
 
-        $dataApiB24 = \X3Group\B24Api\Models\B24Api::where('expires', '<=', time() - (20 * 3600 * 24))->get();
+        $dataApiB24 = \X3Group\B24Api\Models\B24Api::query()
+            ->where('expires', '<=', time() - (20 * 3600 * 24))
+            ->where('error_update', '<', 10)
+            ->get();
+
         foreach ($dataApiB24 as $b24) {
             $api = (new self($b24->member_id));
             $b24Api = $api->getApi();
             $b24Api->onAccessTokenRefresh(function (Credential $credential) use ($api) {
                 $api->saveMemberData($credential->toArray());
             });
-            $b24Api->getNewAccessToken();
+            try {
+                $b24Api->getNewAccessToken();
+            } catch (ExpiredRefreshToken $e) {
+                $b24->error_update++;
+                $b24->save();
+
+                Log::error('Expired refresh token: ' . $e->getMessage(), [
+                    'portal' => $b24->client_endpoint,
+                    'user' => $b24->user_id,
+                    'member_id' => $b24->member_id,
+                ]);
+            }
         }
     }
 
@@ -194,7 +210,7 @@ class B24Api
                 'scope' => '',
                 'application_token' => ''
             ]);
-
+            $updateFields['error_update'] = 0;
             try {
                 \X3Group\B24Api\Models\B24Api::updateOrCreate(
                     ['member_id' => $this->memberId],
