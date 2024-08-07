@@ -37,7 +37,8 @@ class B24AuthUser
                         $userFind->update(
                             [
                                 'access_token' => $accessToken,
-                                'is_admin' => $profile['ADMIN']
+                                'is_admin' => $profile['ADMIN'],
+                                'error_update' => 0,
                             ]
                         );
                     } else {

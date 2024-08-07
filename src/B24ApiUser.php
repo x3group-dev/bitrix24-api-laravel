@@ -3,6 +3,8 @@
 namespace X3Group\B24Api;
 
 use Bitrix24Api\Config\Credential;
+use Bitrix24Api\Exceptions\ExpiredRefreshToken;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -43,14 +45,31 @@ class B24ApiUser extends B24Api
         if (env('APP_DEBUG'))
             return;
 
-        $dataApiB24 = \X3Group\B24Api\Models\B24User::where('expires', '<=', time() - (20 * 3600 * 24))->orWhere('expires', null)->get();
+        $dataApiB24 = \X3Group\B24Api\Models\B24User::query()
+            ->where('error_update', '<', 10)
+            ->where(function (Builder $query) {
+                $query->where('expires', '<=', time() - (20 * 3600 * 24))
+                    ->orWhere('expires', null);
+            })
+            ->get();
         foreach ($dataApiB24 as $b24) {
             $api = (new self($b24->member_id, $b24->user_id));
             $b24Api = $api->getApi();
             $b24Api->onAccessTokenRefresh(function (Credential $credential) use ($api) {
                 $api->saveMemberData($credential->toArray());
             });
-            $b24Api->getNewAccessToken();
+            try {
+                $b24Api->getNewAccessToken();
+            } catch (ExpiredRefreshToken $e) {
+                $b24->error_update++;
+                $b24->save();
+
+                Log::error('Expired refresh token: ' . $e->getMessage(), [
+                    'portal' => $b24->domain,
+                    'user' => $b24->user_id,
+                    'member_id' => $b24->member_id,
+                ]);
+            }
         }
     }
 
@@ -79,6 +98,7 @@ class B24ApiUser extends B24Api
                 'scope' => '',
                 'application_token' => ''
             ]);
+            $updateFields['error_update'] = 0;
             try {
                 \X3Group\B24Api\Models\B24User::updateOrCreate(
                     ['member_id' => $this->memberId, 'user_id' => $this->b24UserId],

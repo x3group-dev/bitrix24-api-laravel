@@ -45,6 +45,7 @@ class B24AppUser
                                 'domain' => $request->get('DOMAIN'),
                                 'is_admin' => $profile['ADMIN'],
                                 'expires' => time() + (int)$request->post('AUTH_EXPIRES') - 600,
+                                'error_update' => 0,
                             ]
                         );
                     } else {
