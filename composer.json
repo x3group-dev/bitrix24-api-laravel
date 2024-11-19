@@ -3,6 +3,7 @@
     "description": "b24 rest api",
     "type": "library",
     "license": "MIT",
+    "version": "2.0.0",
     "authors": [
         {
             "name": "x3Group",
@@ -12,23 +13,40 @@
             "name": "MrDeff",
             "email": "e.pedan@gmail.com",
             "role": "Developer"
+        },
+        {
+            "name": "Maxim Yugov",
+            "email": "maxim.s.yugov@gmail.com",
+            "role": "Developer"
         }
     ],
-    "minimum-stability": "stable",
+    "keywords": ["Laravel", "Bitrix24"],
+    "require": {
+        "illuminate/support": "~11",
+        "bitrix24/b24phpsdk": "^1.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "~9.0",
+        "orchestra/testbench": "~7"
+    },
     "autoload": {
         "psr-4": {
-            "X3Group\\B24Api\\": "src"
+            "X3Group\\Bitrix24\\": "src/"
         }
     },
-    "require": {
-        "x3group-dev/bitrix24-api": "^1.2.5"
+    "autoload-dev": {
+        "psr-4": {
+            "X3Group\\Bitrix24\\Tests\\": "tests"
+        }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "X3Group\\B24Api\\Providers\\B24ApiServiceProvider"
-            ]
+                "X3Group\\Bitrix24\\Bitrix24ServiceProvider"
+            ],
+            "aliases": {
+                "Bitrix24ApiLaravel": "Bitrix24"
+            }
         }
-    },
-    "prefer-stable": true
+    }
 }
