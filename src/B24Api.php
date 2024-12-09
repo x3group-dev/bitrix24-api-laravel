@@ -51,7 +51,7 @@ class B24Api
             if (!empty($settings)) {
                 $credential = \Bitrix24Api\Config\Credential::initFromArray($settings);
                 $config = new \Bitrix24Api\Config\Config(null, $application, $credential, $this->log);
-                $api = new \Bitrix24Api\ApiClient($config);
+                $api = new \Bitrix24Api\ApiClient($config, app('cache.store'));
                 $api->onAccessTokenRefresh(function (\Bitrix24Api\Config\Credential $credential) {
                     $this->saveMemberData($credential->toArray());
                 });
