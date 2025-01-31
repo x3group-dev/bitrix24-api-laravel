@@ -6,6 +6,7 @@ use Bitrix24Api\Config\Credential;
 use Bitrix24Api\Exceptions\ExpiredRefreshToken;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
+use X3Group\B24Api\Models\B24User;
 
 /**
  * Класс для работы с б24 в контексте пользователя
@@ -71,6 +72,14 @@ class B24ApiUser extends B24Api
                 ]);
             }
         }
+    }
+
+    public static function clear(): void
+    {
+        B24User::query()
+            ->whereNull('refresh_token')
+            ->orWhere('refresh_token', '')
+            ->delete();
     }
 
     protected function saveMemberData($settings): bool

@@ -124,6 +124,10 @@ class B24ApiServiceProvider extends ServiceProvider
             $schedule->call(function () {
                 B24Api::checkStatus();
             })->hourly();
+
+            $schedule->call(function () {
+                B24ApiUser::clear();
+            })->daily();
         });
 
         $this->loadRoutesFrom(__DIR__ . '/../routes/web.php');
