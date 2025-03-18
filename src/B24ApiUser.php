@@ -54,12 +54,13 @@ class B24ApiUser extends B24Api
             })
             ->get();
         foreach ($dataApiB24 as $b24) {
-            $api = (new self($b24->member_id, $b24->user_id));
-            $b24Api = $api->getApi();
-            $b24Api->onAccessTokenRefresh(function (Credential $credential) use ($api) {
-                $api->saveMemberData($credential->toArray());
-            });
             try {
+                $api = (new self($b24->member_id, $b24->user_id));
+                $b24Api = $api->getApi();
+                $b24Api->onAccessTokenRefresh(function (Credential $credential) use ($api) {
+                    $api->saveMemberData($credential->toArray());
+                });
+
                 $b24Api->getNewAccessToken();
             } catch (ExpiredRefreshToken $e) {
                 $b24->error_update++;
@@ -70,6 +71,10 @@ class B24ApiUser extends B24Api
                     'user' => $b24->user_id,
                     'member_id' => $b24->member_id,
                 ]);
+            } catch (\Exception $exception) {
+                $b24->error_update++;
+                $b24->save();
+                Log::error('Error renew user tokens. Exception: ' . $exception->getMessage(), []);
             }
         }
     }
