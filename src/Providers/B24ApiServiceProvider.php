@@ -119,6 +119,7 @@ class B24ApiServiceProvider extends ServiceProvider
             $schedule->call(function () {
                 B24Api::renewTokens();
                 B24ApiUser::renewTokens();
+                B24ApiUser::clear();
             })->everyMinute();
 
             $schedule->call(function () {

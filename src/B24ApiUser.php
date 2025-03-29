@@ -81,6 +81,11 @@ class B24ApiUser extends B24Api
 
     public static function clear(): void
     {
+        $data = B24User::query()->leftJoin('b24api as b24a', 'b24user.member_id', '=', 'b24a.member_id')->select(['b24user.id', 'b24user.user_id', 'b24user.member_id', 'b24a.domain'])->whereNull('b24a.domain')->get();
+        foreach ($data as $item) {
+            $item->delete();
+        }
+
         B24User::query()
             ->whereNull('refresh_token')
             ->orWhere('refresh_token', '')
