@@ -120,6 +120,10 @@ class B24ApiUser extends B24Api
                 'application_token' => ''
             ]);
             $updateFields['error_update'] = 0;
+            if (empty($updateFields['refresh_token'])) {
+                Log::error('empty refresh token, memberId:' . $this->memberId . ' ,userId:' . $this->b24UserId);
+                return false;
+            }
             try {
                 \X3Group\B24Api\Models\B24User::updateOrCreate(
                     ['member_id' => $this->memberId, 'user_id' => $this->b24UserId],
