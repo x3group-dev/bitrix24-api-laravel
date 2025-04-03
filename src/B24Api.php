@@ -143,6 +143,8 @@ class B24Api
             });
             try {
                 $b24Api->getNewAccessToken();
+                $b24->error_update = 0;
+                $b24->save();
             } catch (ExpiredRefreshToken $e) {
                 $b24->error_update++;
                 $b24->save();
