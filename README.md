@@ -38,6 +38,7 @@ https://host/install
 ```injectablephp
 BITRIX24_PHP_SDK_APPLICATION_CLIENT_ID=
 BITRIX24_PHP_SDK_APPLICATION_CLIENT_SECRET=
+# вместо crm,user_brief укажите скоупы приложения
 BITRIX24_PHP_SDK_APPLICATION_SCOPE="crm,user_brief"
 BITRIX24_LOG_MAX_FILES=3
 ```
