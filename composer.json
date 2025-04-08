@@ -3,7 +3,7 @@
     "description": "b24 rest api",
     "type": "library",
     "license": "MIT",
-    "version": "2.0.0",
+    "version": "2.0.3",
     "authors": [
         {
             "name": "x3Group",
@@ -20,7 +20,7 @@
             "role": "Developer"
         }
     ],
-    "keywords": ["Laravel", "Bitrix24"],
+    "keywords": ["Laravel", "Bitrix", "Bitrix24"],
     "require": {
         "illuminate/support": "~11",
         "bitrix24/b24phpsdk": "^1.1"
