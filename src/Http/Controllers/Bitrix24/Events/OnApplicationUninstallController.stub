@@ -8,7 +8,7 @@ use Bitrix24\SDK\Services\RemoteEventsFabric;
 use Illuminate\Http\Request;
 use X3Group\Bitrix24\Models\B24App;
 
-class DemoOnApplicationUninstallController extends Controller
+class OnApplicationUninstallController extends Controller
 {
     public function handle(Request $request)
     {

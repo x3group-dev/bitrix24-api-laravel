@@ -129,11 +129,11 @@ class Bitrix24ServiceProvider extends ServiceProvider
 
             __DIR__ . '/../resources/views' => resource_path('views/b24api'),
 
-            __DIR__ . '/Http/Controllers/Bitrix24/DemoAppController.php' => base_path('app/Http/Controllers/Bitrix24/AppController.php'),
-            __DIR__ . '/Http/Controllers/Bitrix24/DemoInstallController.php' => base_path('app/Http/Controllers/Bitrix24/InstallController.php'),
+            __DIR__ . '/Http/Controllers/Bitrix24/AppController.stub' => base_path('app/Http/Controllers/Bitrix24/AppController.php'),
+            __DIR__ . '/Http/Controllers/Bitrix24/InstallController.stub' => base_path('app/Http/Controllers/Bitrix24/InstallController.php'),
 
-            __DIR__ . '/Http/Controllers/Bitrix24/Events/DemoOnApplicationInstallController.php' => base_path('app/Http/Controllers/Bitrix24/Events/OnApplicationInstallController.php'),
-            __DIR__ . '/Http/Controllers/Bitrix24/Events/DemoOnApplicationUninstallController.php' => base_path('app/Http/Controllers/Bitrix24/Events/OnApplicationUninstallController.php'),
+            __DIR__ . '/Http/Controllers/Bitrix24/Events/OnApplicationInstallController.stub' => base_path('app/Http/Controllers/Bitrix24/Events/OnApplicationInstallController.php'),
+            __DIR__ . '/Http/Controllers/Bitrix24/Events/OnApplicationUninstallController.stub' => base_path('app/Http/Controllers/Bitrix24/Events/OnApplicationUninstallController.php'),
         ], 'bitrix24-routes');
 
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
