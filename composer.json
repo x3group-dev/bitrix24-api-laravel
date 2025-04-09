@@ -3,7 +3,6 @@
     "description": "b24 rest api",
     "type": "library",
     "license": "MIT",
-    "version": "2.0.4",
     "authors": [
         {
             "name": "x3Group",
