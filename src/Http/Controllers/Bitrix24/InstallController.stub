@@ -17,7 +17,7 @@ use Illuminate\View\View;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage;
 
-class DemoInstallController extends Controller
+class InstallController extends Controller
 {
     public function install(Request $request): View
     {
