@@ -261,13 +261,13 @@ class B24Api
                 'scope' => '',
                 'application_token' => ''
             ]);
+            $updateFields['error_update'] = 0;
 
             try {
                 \X3Group\B24Api\Models\B24Api::updateOrCreate(
                     ['member_id' => $memberId],
                     $updateFields
                 );
-
                 return true;
             } catch (\Exception $exception) {
                 Log::error((string)$exception);
