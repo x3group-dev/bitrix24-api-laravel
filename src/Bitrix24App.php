@@ -17,8 +17,12 @@ readonly class Bitrix24App
 {
     public ServiceBuilder $api;
 
+    private string $memberId;
+
     public function __construct(string $memberId)
     {
+        $this->memberId = $memberId;
+
         $applicationProfile = new ApplicationProfile(
             clientId: config('bitrix24.client_id'),
             clientSecret: config('bitrix24.client_secret'),
@@ -51,5 +55,10 @@ readonly class Bitrix24App
             authToken: $authToken,
             bitrix24DomainUrl: "https://{$b24api->domain}",
         );
+    }
+
+    public function getMemberId(): string
+    {
+        return $this->memberId;
     }
 }

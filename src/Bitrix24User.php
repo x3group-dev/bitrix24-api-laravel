@@ -16,8 +16,15 @@ readonly class Bitrix24User
 {
     public ServiceBuilder $api;
 
+    private string $memberId;
+
+    private int $userId;
+
     public function __construct(string $memberId, int $userId)
     {
+        $this->memberId = $memberId;
+        $this->userId = $userId;
+
         $factory = new ServiceBuilderFactory(
             eventDispatcher: resolve('userEvents', [
                 'memberId' => $memberId,
@@ -56,5 +63,15 @@ readonly class Bitrix24User
             authToken: $authToken,
             bitrix24DomainUrl: "https://{$b24user->domain}",
         );
+    }
+
+    public function getMemberId(): string
+    {
+        return $this->memberId;
+    }
+
+    public function getUserId(): int
+    {
+        return $this->userId;
     }
 }
