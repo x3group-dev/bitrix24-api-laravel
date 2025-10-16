@@ -176,6 +176,9 @@ class B24Api
                 //todo: remove delaytasks
                 B24User::query()->where('member_id', $b24->member_id)->delete();
                 $b24->delete();
+            } catch (ExpiredRefreshToken $exception) {
+                B24User::query()->where('member_id', $b24->member_id)->delete();
+                $b24->delete();
             } catch (ApiException $e) {
 
             }
