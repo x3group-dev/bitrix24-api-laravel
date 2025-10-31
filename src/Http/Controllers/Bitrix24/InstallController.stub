@@ -124,7 +124,7 @@ class InstallController extends Controller
             // your code here
 
             if ($restOnly) {
-                return view('b24api.install');
+                return view('b24api.install-empty');
             } else {
                 return view('b24api.install');
             }
