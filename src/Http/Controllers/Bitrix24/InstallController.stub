@@ -21,6 +21,12 @@ class InstallController extends Controller
 {
     public function install(Request $request): View
     {
+        $restOnly = true;
+
+        if ($request->post('PLACEMENT') == 'DEFAULT') {
+            $restOnly = false;
+        }
+
         try {
             /** @var EventDispatcherAdapter $eventDispatcher */
             $eventDispatcher = resolve('appEvents');
@@ -32,18 +38,63 @@ class InstallController extends Controller
                 $appAuthStorage->saveRenewedToken($authTokenRenewedEvent->getRenewedToken());
             });
 
-            $b24 = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
-                placementRequest: $request,
-                applicationProfile: new ApplicationProfile(
+            if ($restOnly) {
+                $rawDomainUrl = trim((string)$request->post('auth')['domain']);
+                $memberId = trim((string)$request->post('auth')['member_id']);
+
+                $logger = resolve('b24log', [
+                    'memberId' => $memberId,
+                    'domain' => $rawDomainUrl
+                ]);
+
+                $applicationProfile = new ApplicationProfile(
                     clientId: config('bitrix24.client_id'),
                     clientSecret: config('bitrix24.client_secret'),
                     scope: Scope::initFromString(config('bitrix24.scope')),
-                ),
-                eventDispatcher: $eventDispatcher,
-                logger: resolve('b24log', [
-                    'memberId' => $request->input('member_id'),
-                    'domain' => $request->input('DOMAIN')
-                ]),
+                );
+
+                $b24 = (new ServiceBuilderFactory($eventDispatcher, $logger))
+                    ->init(
+                        $applicationProfile,
+                        AuthToken::initFromArray($request->post('auth')),
+                        $rawDomainUrl
+                    );
+
+                $authToken = new AuthToken(
+                    accessToken: trim((string)$request->post('auth')['access_token']),
+                    refreshToken: trim((string)$request->post('auth')['refresh_token']),
+                    expires: (int)$request->post('auth')['expires']
+                );
+
+            } else {
+                $memberId = $request->input('member_id');
+                $rawDomainUrl = trim((string)$request->input('DOMAIN'));
+
+                $b24 = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
+                    placementRequest: $request,
+                    applicationProfile: new ApplicationProfile(
+                        clientId: config('bitrix24.client_id'),
+                        clientSecret: config('bitrix24.client_secret'),
+                        scope: Scope::initFromString(config('bitrix24.scope')),
+                    ),
+                    eventDispatcher: $eventDispatcher,
+                    logger: resolve('b24log', [
+                        'memberId' => $request->input('member_id'),
+                        'domain' => $request->input('DOMAIN')
+                    ]),
+                );
+
+                $authToken = new AuthToken(
+                    accessToken: $request->input('AUTH_ID'),
+                    refreshToken: $request->input('REFRESH_ID'),
+                    expires: (int)$request->input('AUTH_EXPIRES'),
+                );
+            }
+
+            $localAppAuth = new LocalAppAuth(
+                authToken: $authToken,
+                domainUrl: $rawDomainUrl,
+                applicationToken: null,
             );
 
             $currentB24UserId = $b24->getMainScope()
@@ -51,20 +102,6 @@ class InstallController extends Controller
                 ->getCurrentUserProfile()
                 ->getUserProfile()
                 ->ID;
-
-            $authToken = new AuthToken(
-                accessToken: $request->input('AUTH_ID'),
-                refreshToken: $request->input('REFRESH_ID'),
-                expires: (int)$request->input('AUTH_EXPIRES'),
-            );
-
-            $localAppAuth = new LocalAppAuth(
-                authToken: $authToken,
-                domainUrl: $request->input('DOMAIN'),
-                applicationToken: null,
-            );
-
-            $memberId = $request->input('member_id');
 
             $storage = new AppAuthDatabaseStorage($memberId);
             $storage->save($localAppAuth);
@@ -86,8 +123,13 @@ class InstallController extends Controller
 
             // your code here
 
-            return view('b24api.install');
+            if ($restOnly) {
+                return view('b24api.install');
+            } else {
+                return view('b24api.install');
+            }
         } catch (\Throwable $e) {
+            logger($e->getMessage());
             return view('b24api.install-fail');
         }
     }
