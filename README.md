@@ -56,3 +56,11 @@ BX24.ready(async function () {
     });
 });
 ```
+
+**Cron**
+
+Для автообновления токенов приложения обязательно требуется добавить запись в crontab
+
+```php
+* * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+```

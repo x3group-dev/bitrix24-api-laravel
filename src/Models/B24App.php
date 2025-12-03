@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $expires
  * @property int $expires_in
  * @property string $application_token
+ * @property int $error_update
  */
 class B24App extends Model
 {
@@ -23,5 +24,6 @@ class B24App extends Model
         'expires',
         'expires_in',
         'application_token',
+        'error_update',
     ];
 }

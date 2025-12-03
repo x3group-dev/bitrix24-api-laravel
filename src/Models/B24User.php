@@ -13,6 +13,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
  * @property int $expires
  * @property int $expires_in
  * @property string $domain
+ * @property int $error_update
  */
 class B24User extends Authenticatable
 {
@@ -25,6 +26,7 @@ class B24User extends Authenticatable
         'expires',
         'expires_in',
         'is_admin',
+        'error_update',
     ];
 
     protected $casts = [
