@@ -25,6 +25,7 @@ use Illuminate\Routing\RouteBinding;
 use Illuminate\Routing\Router;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Monolog\Handler\RotatingFileHandler;
@@ -314,6 +315,13 @@ class Bitrix24ServiceProvider extends ServiceProvider
         });
 
         Event::listen(PortalDomainUrlChangedEvent::class, PortalDomainUrlChangedListener::class);
+
+        $this->app->booted(function () {
+            Schedule::call(function () {
+                Bitrix24App::renewTokens();
+                Bitrix24User::renewTokens();
+            })->everyMinute();
+        });
     }
 
     /**

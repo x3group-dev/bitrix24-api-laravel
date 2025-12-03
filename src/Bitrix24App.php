@@ -61,4 +61,47 @@ readonly class Bitrix24App
     {
         return $this->memberId;
     }
+
+    public static function renewTokens(): void
+    {
+        if (!app()->isProduction()) {
+            return;
+        }
+
+        $b24apps = B24App::query()
+            ->where('expires', '<=', time() - (20 * 3600 *24))
+            ->where('error_update', '<', 10)
+            ->get();
+
+        /** @var B24App $b24app */
+        foreach ($b24apps as $b24app) {
+            try {
+                $b24 = new self($b24app->member_id);
+                $renewedToken = $b24->api->core->getApiClient()->getNewAuthToken();
+            } catch (\Throwable $e) {
+                logger()->error('renew token error', [
+                    'member_id' => $b24app->member_id,
+                    'domain' => $b24app->domain,
+                    'error' => sprintf('%s:%s - %s', $e->getFile(), $e->getLine(), $e->getMessage()),
+                ]);
+
+                $b24app->error_update++;
+                $b24app->save();
+
+                continue;
+            }
+
+            $b24app->error_update = 0;
+            $b24app->access_token = $renewedToken->authToken->accessToken;
+            $b24app->refresh_token = $renewedToken->authToken->refreshToken;
+            $b24app->expires_in = $renewedToken->authToken->expiresIn ?? 3600;
+            $b24app->expires = $renewedToken->authToken->expires;
+            $b24app->save();
+
+            logger()->debug('renew token success', [
+                'member_id' => $b24app->member_id,
+                'domain' => $b24app->domain,
+            ]);
+        }
+    }
 }
