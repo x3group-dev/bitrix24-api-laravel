@@ -31,7 +31,7 @@ class B24AuthUser
             try {
                 $api = new B24ApiUserRequest($memberId, $accessToken, '', '');
                 if ($profile = $api->getProfile()) {
-                    $userFind = B24User::where('user_id', $profile['ID'])->where('member_id', $request->post('member_id'))->first();
+                    $userFind = B24User::where('user_id', $profile['ID'])->where('member_id', $memberId)->first();
                     if ($userFind) {
                         //todo: надо подумать над refresh, возможно не стоит обновлять access
                         $userFind->update(
