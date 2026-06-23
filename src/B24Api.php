@@ -37,7 +37,14 @@ class B24Api
         if (!empty($memberId)) {
             $this->memberId = $memberId;
             $settings = static::getSettings();
+            if (empty($settings['client_endpoint'])) {
+                throw new \Exception("client_endpoint is empty for member_id {$memberId}");
+            }
+
             $dataClientEndpoint = parse_url($settings['client_endpoint']);
+            if (empty($dataClientEndpoint['host'])) {
+                throw new \Exception("client_endpoint is invalid for member_id {$memberId}");
+            }
 
             $logMaxFiles = intval(getenv('B24API_LOG_MAX_FILES'));
             if ($logMaxFiles == 0)
@@ -136,12 +143,13 @@ class B24Api
             ->get();
 
         foreach ($dataApiB24 as $b24) {
-            $api = (new self($b24->member_id));
-            $b24Api = $api->getApi();
-            $b24Api->onAccessTokenRefresh(function (Credential $credential) use ($api) {
-                $api->saveMemberData($credential->toArray());
-            });
             try {
+                $api = (new self($b24->member_id));
+                $b24Api = $api->getApi();
+                $b24Api->onAccessTokenRefresh(function (Credential $credential) use ($api) {
+                    $api->saveMemberData($credential->toArray());
+                });
+
                 $b24Api->getNewAccessToken();
                 $b24->error_update = 0;
                 $b24->save();
@@ -152,6 +160,14 @@ class B24Api
                 Log::error('Expired refresh token: ' . $e->getMessage(), [
                     'portal' => $b24->client_endpoint,
                     'user' => $b24->user_id,
+                    'member_id' => $b24->member_id,
+                ]);
+            } catch (\Throwable $exception) {
+                $b24->error_update++;
+                $b24->save();
+
+                Log::error('Error renew portal tokens. Exception: ' . $exception->getMessage(), [
+                    'portal' => $b24->client_endpoint,
                     'member_id' => $b24->member_id,
                 ]);
             }
@@ -168,9 +184,9 @@ class B24Api
         $model = new \X3Group\B24Api\Models\B24Api;
         $dataApiB24 = $model->get();
         foreach ($dataApiB24 as $b24) {
-            $api = (new self($b24->member_id));
-            $b24Api = $api->getApi();
             try {
+                $api = (new self($b24->member_id));
+                $b24Api = $api->getApi();
                 $appInfo = $b24Api->request('app.info');
             } catch (ApplicationNotInstalled $exception) {
                 //todo: remove delaytasks
@@ -181,6 +197,14 @@ class B24Api
                 $b24->delete();
             } catch (ApiException $e) {
 
+            } catch (\Throwable $exception) {
+                $b24->error_update++;
+                $b24->save();
+
+                Log::error('Error check portal status. Exception: ' . $exception->getMessage(), [
+                    'portal' => $b24->client_endpoint,
+                    'member_id' => $b24->member_id,
+                ]);
             }
         }
     }

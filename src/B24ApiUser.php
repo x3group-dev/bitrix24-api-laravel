@@ -73,10 +73,14 @@ class B24ApiUser extends B24Api
                     'user' => $b24->user_id,
                     'member_id' => $b24->member_id,
                 ]);
-            } catch (\Exception $exception) {
+            } catch (\Throwable $exception) {
                 $b24->error_update++;
                 $b24->save();
-                Log::error('Error renew user tokens. Exception: ' . $exception->getMessage(), []);
+                Log::error('Error renew user tokens. Exception: ' . $exception->getMessage(), [
+                    'portal' => $b24->domain,
+                    'user' => $b24->user_id,
+                    'member_id' => $b24->member_id,
+                ]);
             }
         }
     }
