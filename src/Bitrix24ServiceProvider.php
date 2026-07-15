@@ -362,6 +362,8 @@ class Bitrix24ServiceProvider extends ServiceProvider
         ], 'bitrix24.lang');*/
 
         // Registering package commands.
-        // $this->commands([]);
+        $this->commands([
+            \X3Group\Bitrix24\Console\Commands\RemoveUninstalledPortals::class,
+        ]);
     }
 }
