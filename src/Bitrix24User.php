@@ -8,6 +8,7 @@ use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilder;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use X3Group\Bitrix24\Models\B24User;
+use X3Group\Bitrix24\Support\OAuthErrorInspector;
 
 /**
  * Клиент для работы с API в контексте пользователя
@@ -92,6 +93,19 @@ readonly class Bitrix24User
                 $b24 = new self($b24user->member_id, $b24user->user_id);
                 $renewedToken = $b24->api->core->getApiClient()->getNewAuthToken();
             } catch (\Throwable $e) {
+                // Приложение удалено с портала — пользовательский токен мёртв, удаляем его.
+                if (OAuthErrorInspector::isApplicationNotInstalled($e)) {
+                    $b24user->delete();
+
+                    logger()->info('removed uninstalled user token on renewal', [
+                        'member_id' => $b24user->member_id,
+                        'domain' => $b24user->domain,
+                        'user_id' => $b24user->user_id,
+                    ]);
+
+                    continue;
+                }
+
                 logger()->error('renew token error', [
                     'member_id' => $b24user->member_id,
                     'domain' => $b24user->domain,

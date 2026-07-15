@@ -9,6 +9,8 @@ use Bitrix24\SDK\Services\ServiceBuilder;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use X3Group\Bitrix24\Models\B24App;
+use X3Group\Bitrix24\Models\B24User;
+use X3Group\Bitrix24\Support\OAuthErrorInspector;
 
 /**
  * Клиент для работы с API в контексте приложения
@@ -79,6 +81,21 @@ readonly class Bitrix24App
                 $b24 = new self($b24app->member_id);
                 $renewedToken = $b24->api->core->getApiClient()->getNewAuthToken();
             } catch (\Throwable $e) {
+                // Приложение удалено с портала — токен невозможно обновить, а запросы к
+                // нему будут падать бесконечно. Удаляем запись портала (и связанные
+                // пользовательские токены), чтобы прекратить попытки.
+                if (OAuthErrorInspector::isApplicationNotInstalled($e)) {
+                    B24User::query()->where('member_id', $b24app->member_id)->delete();
+                    $b24app->delete();
+
+                    logger()->info('removed uninstalled portal on token renewal', [
+                        'member_id' => $b24app->member_id,
+                        'domain' => $b24app->domain,
+                    ]);
+
+                    continue;
+                }
+
                 logger()->error('renew token error', [
                     'member_id' => $b24app->member_id,
                     'domain' => $b24app->domain,
