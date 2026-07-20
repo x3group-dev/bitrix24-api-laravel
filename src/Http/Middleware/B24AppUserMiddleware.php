@@ -8,6 +8,8 @@ use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
+use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 
 class B24AppUserMiddleware
@@ -34,6 +36,8 @@ class B24AppUserMiddleware
                 return response()->json(['error' => 'AUTH_ID is null'], 406);
 
             try {
+                $oauthServerUrl = OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT'));
+
                 $b24 = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
                     placementRequest: $request,
                     applicationProfile: new ApplicationProfile(
@@ -46,7 +50,13 @@ class B24AppUserMiddleware
                         'memberId' => $memberId,
                         'domain' => $request->input('DOMAIN'),
                     ]),
+                    oauthServerUrl: $oauthServerUrl,
                 );
+
+                B24App::query()
+                    ->where('member_id', $memberId)
+                    ->whereNull('oauth_server_url')
+                    ->update(['oauth_server_url' => $oauthServerUrl]);
 
                 $profile = $b24->getMainScope()->main()->getCurrentUserProfile()->getUserProfile();
 
