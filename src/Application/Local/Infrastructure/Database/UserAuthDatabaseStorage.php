@@ -5,6 +5,7 @@ namespace X3Group\Bitrix24\Application\Local\Infrastructure\Database;
 use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Application\Local\Repository\LocalAppAuthRepositoryInterface;
 use Bitrix24\SDK\Core\Response\DTO\RenewedAuthToken;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 
@@ -40,6 +41,9 @@ readonly class UserAuthDatabaseStorage implements LocalAppAuthRepositoryInterfac
             ],
             'domain_url' => "https://{$b24user->domain}",
             'application_token' => $b24user->b24app()->application_token,
+            'oauth_server_url' => OauthServerUrlResolver::orDefault(
+                B24App::query()->where('member_id', $b24user->member_id)->value('oauth_server_url')
+            ),
         ]);
     }
 
