@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Bitrix24\Events;
 
 use App\Http\Controllers\Controller;
 use Bitrix24\SDK\Core\Exceptions\WrongSecuritySignatureException;
-use Bitrix24\SDK\Services\RemoteEventsFabric;
+use Bitrix24\SDK\Services\RemoteEventsFactory;
 use Illuminate\Http\Request;
 use X3Group\Bitrix24\Models\B24App;
 
@@ -12,7 +12,7 @@ class OnApplicationUninstallController extends Controller
 {
     public function handle(Request $request)
     {
-        if (!RemoteEventsFabric::isCanProcess($request)) {
+        if (!RemoteEventsFactory::isCanProcess($request)) {
             return;
         }
 
@@ -27,7 +27,7 @@ class OnApplicationUninstallController extends Controller
         }
 
         try {
-            RemoteEventsFabric::init(resolve('b24log', [
+            RemoteEventsFactory::init(resolve('b24log', [
                 'memberId' => $memberId
             ]))
                 ->createEvent(
