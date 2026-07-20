@@ -8,6 +8,7 @@ use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilder;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Symfony\Component\EventDispatcher\EventDispatcher;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 use X3Group\Bitrix24\Support\OAuthErrorInspector;
@@ -56,6 +57,7 @@ readonly class Bitrix24App
             applicationProfile: $applicationProfile,
             authToken: $authToken,
             bitrix24DomainUrl: "https://{$b24api->domain}",
+            oauthServerUrl: OauthServerUrlResolver::orDefault($b24api->oauth_server_url),
         );
     }
 
