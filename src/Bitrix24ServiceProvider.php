@@ -34,7 +34,9 @@ use Monolog\Logger;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpClient\HttpClient;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
+use X3Group\Bitrix24\Application\Install\AppSetupRunner;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage;
+use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\UserAuthDatabaseStorage;
 use X3Group\Bitrix24\Http\Middleware\B24AppMiddleware;
@@ -150,6 +152,9 @@ class Bitrix24ServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/bitrix24.php', 'bitrix24');
+
+        $this->app->bind(AppSetupRunner::class, fn($app) => new AppSetupRunner($app->make('log')));
+        $this->app->bind(AppTokenWriter::class, fn($app) => new AppTokenWriter($app->make('log')));
 
         $this->app->bind('appEvents', function () {
             $eventDispatcher = new EventDispatcherAdapter();
