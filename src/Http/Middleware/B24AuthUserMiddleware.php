@@ -7,6 +7,8 @@ use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Http\Request;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
+use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 
 class B24AuthUserMiddleware
@@ -56,6 +58,9 @@ class B24AuthUserMiddleware
                     applicationProfile: $applicationProfile,
                     authToken: $authToken,
                     bitrix24DomainUrl: "https://{$request->header('X-b24api-domain')}",
+                    oauthServerUrl: OauthServerUrlResolver::orDefault(
+                        B24App::query()->where('member_id', $memberId)->value('oauth_server_url')
+                    ),
                 );
 
                 $profile = $b24->getUserScope()->user()->current()->user();

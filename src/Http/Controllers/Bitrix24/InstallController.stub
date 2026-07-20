@@ -16,6 +16,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\View\View;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 
 class InstallController extends Controller
 {
@@ -32,6 +33,8 @@ class InstallController extends Controller
                 $appAuthStorage->saveRenewedToken($authTokenRenewedEvent->getRenewedToken());
             });
 
+            $oauthServerUrl = OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT'));
+
             $b24 = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
                 placementRequest: $request,
                 applicationProfile: new ApplicationProfile(
@@ -44,6 +47,7 @@ class InstallController extends Controller
                     'memberId' => $request->input('member_id'),
                     'domain' => $request->input('DOMAIN')
                 ]),
+                oauthServerUrl: $oauthServerUrl,
             );
 
             $currentB24UserId = $b24->getMainScope()
@@ -62,6 +66,7 @@ class InstallController extends Controller
                 authToken: $authToken,
                 domainUrl: $request->input('DOMAIN'),
                 applicationToken: null,
+                oauthServerUrl: $oauthServerUrl,
             );
 
             $memberId = $request->input('member_id');

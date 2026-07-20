@@ -20,6 +20,7 @@ class B24App extends Model
         'access_token',
         'refresh_token',
         'domain',
+        'oauth_server_url',
         'member_id',
         'expires',
         'expires_in',

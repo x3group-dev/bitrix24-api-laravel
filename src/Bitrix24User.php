@@ -7,6 +7,8 @@ use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilder;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
+use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 use X3Group\Bitrix24\Support\OAuthErrorInspector;
 
@@ -59,10 +61,15 @@ readonly class Bitrix24User
             expiresIn: $b24user->expires_in,
         );
 
+        $oauthServerUrl = OauthServerUrlResolver::orDefault(
+            B24App::query()->where('member_id', $memberId)->value('oauth_server_url')
+        );
+
         $this->api = $factory->init(
             applicationProfile: $applicationProfile,
             authToken: $authToken,
             bitrix24DomainUrl: "https://{$b24user->domain}",
+            oauthServerUrl: $oauthServerUrl,
         );
     }
 

@@ -5,6 +5,7 @@ namespace X3Group\Bitrix24\Application\Local\Infrastructure\Database;
 use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Application\Local\Repository\LocalAppAuthRepositoryInterface;
 use Bitrix24\SDK\Core\Response\DTO\RenewedAuthToken;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 
 readonly class AppAuthDatabaseStorage implements LocalAppAuthRepositoryInterface
@@ -36,6 +37,7 @@ readonly class AppAuthDatabaseStorage implements LocalAppAuthRepositoryInterface
             ],
             'domain_url' => "https://{$b24app->domain}",
             'application_token' => $b24app->application_token,
+            'oauth_server_url' => OauthServerUrlResolver::orDefault($b24app->oauth_server_url),
         ]);
     }
 
@@ -98,6 +100,7 @@ readonly class AppAuthDatabaseStorage implements LocalAppAuthRepositoryInterface
                     'expires_in' => $localAppAuth->getAuthToken()->expires,
                     'application_token' => $localAppAuth->getApplicationToken(),
                     'domain' => $localAppAuth->getDomainUrl(),
+                    'oauth_server_url' => $localAppAuth->toArray()['oauth_server_url'] ?? OauthServerUrlResolver::EAST,
                     'member_id' => $this->memberId,
                 ]);
         } else {
@@ -107,6 +110,7 @@ readonly class AppAuthDatabaseStorage implements LocalAppAuthRepositoryInterface
             $b24api->expires_in = $localAppAuth->getAuthToken()->expires;
             $b24api->application_token = $localAppAuth->getApplicationToken();
             $b24api->domain = $localAppAuth->getDomainUrl();
+            $b24api->oauth_server_url = $localAppAuth->toArray()['oauth_server_url'] ?? OauthServerUrlResolver::EAST;
 
             $b24api->save();
         }

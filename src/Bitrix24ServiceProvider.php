@@ -9,6 +9,7 @@ use Bitrix24\SDK\Core\ApiLevelErrorHandler;
 use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Credentials;
+use Bitrix24\SDK\Core\Credentials\Endpoints;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Events\AuthTokenRenewedEvent;
 use Bitrix24\SDK\Events\PortalDomainUrlChangedEvent;
@@ -34,6 +35,7 @@ use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpClient\HttpClient;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\UserAuthDatabaseStorage;
 use X3Group\Bitrix24\Http\Middleware\B24AppMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AppUserMiddleware;
@@ -271,6 +273,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
                 applicationProfile: $applicationProfile,
                 authToken: $authToken,
                 bitrix24DomainUrl: "https://{$b24api->domain}",
+                oauthServerUrl: OauthServerUrlResolver::orDefault($b24api->oauth_server_url),
             );
 
             // User
@@ -278,6 +281,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
                 placementRequest: Request::createFromGlobals(),
                 applicationProfile: $applicationProfile,
                 eventDispatcher: new EventDispatcherAdapter(),
+                oauthServerUrl: OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT')),
             );
 
             return new Bitrix24ApiClient(
@@ -301,7 +305,12 @@ class Bitrix24ServiceProvider extends ServiceProvider
                         clientSecret: config('bitrix24.client_secret'),
                         scope: Scope::initFromString(config('bitrix24.scope'))
                     ),
-                    domainUrl: "https://{$parameters['domain']}",
+                    endpoints: new Endpoints(
+                        "https://{$parameters['domain']}",
+                        OauthServerUrlResolver::orDefault(
+                            B24App::query()->where('member_id', $parameters['memberId'])->value('oauth_server_url')
+                        ),
+                    ),
                 ),
                 client: HttpClient::create(),
                 requestIdGenerator: new DefaultRequestIdGenerator(),
