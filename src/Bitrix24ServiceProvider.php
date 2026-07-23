@@ -21,14 +21,17 @@ use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\RouteBinding;
 use Illuminate\Routing\Router;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Monolog\Formatter\JsonFormatter;
 use Monolog\Handler\RotatingFileHandler;
 use Monolog\Logger;
 use Symfony\Component\EventDispatcher\EventDispatcher;
@@ -43,6 +46,10 @@ use X3Group\Bitrix24\Http\Middleware\B24AppMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AppUserMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AuthUserMiddleware;
 use X3Group\Bitrix24\Listeners\PortalDomainUrlChangedListener;
+use X3Group\Bitrix24\Logging\ContentTruncatingProcessor;
+use X3Group\Bitrix24\Logging\MetadataProcessor;
+use X3Group\Bitrix24\Logging\PersonalDataProcessor;
+use X3Group\Bitrix24\Logging\SecretMaskingProcessor;
 use X3Group\Bitrix24\Models\B24App;
 
 class Bitrix24ServiceProvider extends ServiceProvider
@@ -142,6 +149,94 @@ class Bitrix24ServiceProvider extends ServiceProvider
         ], 'bitrix24-routes');
 
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
+        // Структурированное логирование включается только при явном флаге;
+        // по умолчанию (enabled = false) поведение пакета не меняется.
+        if (config('structured-logging.enabled')) {
+            $this->registerStructuredLoggingChannel();
+            $this->routeApplicationErrorsToStructured();
+        }
+    }
+
+    /**
+     * Регистрирует лог-канал `structured`: ротируемый JSON-файл + процессоры
+     * маскирования секретов/ПД, обрезки и меток.
+     *
+     * Канал собирается вручную (тем же стилем, что и bind 'b24log' выше):
+     * new Logger + pushHandler(RotatingFileHandler) — это даёт детерминированный
+     * контроль над порядком процессоров, независимо от версии Laravel-парсера
+     * monolog-конфига. `Log::extend('structured')` делает его доступным через
+     * app('log')->channel('structured').
+     *
+     * @return void
+     */
+    protected function registerStructuredLoggingChannel(): void
+    {
+        config(['logging.channels.structured' => ['driver' => 'structured']]);
+
+        Log::extend('structured', function () {
+            $handler = new RotatingFileHandler(
+                filename: config('structured-logging.path'),
+                maxFiles: config('structured-logging.max_files'),
+            );
+            $handler->setFormatter(new JsonFormatter());
+
+            $logger = new Logger('structured');
+            $logger->pushHandler($handler);
+
+            // monolog применяет процессоры в порядке, обратном pushProcessor (LIFO),
+            // поэтому пушим их в обратном порядке, чтобы фактический порядок был:
+            // Secret → PersonalData → ContentTruncating → Metadata.
+            $logger->pushProcessor(new MetadataProcessor(
+                (string) config('structured-logging.schema_version'),
+                (string) config('structured-logging.app'),
+                (string) config('app.env'),
+                fn () => auth()->user()?->member_id ?? null,
+            ));
+            $logger->pushProcessor(new ContentTruncatingProcessor(
+                (int) config('structured-logging.truncate_at'),
+            ));
+            $logger->pushProcessor(new PersonalDataProcessor(
+                config('structured-logging.personal_data_methods'),
+                config('structured-logging.personal_data_keys'),
+            ));
+            $logger->pushProcessor(new SecretMaskingProcessor(
+                config('structured-logging.secret_keys'),
+            ));
+
+            return $logger;
+        });
+    }
+
+    /**
+     * Дублирует записи приложения уровня >= WARNING (включая необработанные
+     * исключения) в канал `structured`.
+     *
+     * Защита от самозацикливания: при повторной записи в канал structured мы
+     * ставим в контекст флаг `__structured`; MessageLogged от этой записи ловится
+     * снова, но флаг заставляет слушатель выйти сразу. Записи самого LoggingCore
+     * пишутся в канал structured на уровне info (ниже WARNING), поэтому в ветку
+     * дублирования вообще не попадают и вторую запись не порождают.
+     *
+     * @return void
+     */
+    protected function routeApplicationErrorsToStructured(): void
+    {
+        Event::listen(MessageLogged::class, function (MessageLogged $event) {
+            if (($event->context['__structured'] ?? false) === true) {
+                return;
+            }
+
+            if (!in_array($event->level, ['warning', 'error', 'critical', 'alert', 'emergency'], true)) {
+                return;
+            }
+
+            app('log')->channel('structured')->log(
+                $event->level,
+                $event->message,
+                $event->context + ['__structured' => true],
+            );
+        });
     }
 
     /**
@@ -152,6 +247,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/bitrix24.php', 'bitrix24');
+        $this->mergeConfigFrom(__DIR__.'/../config/structured-logging.php', 'structured-logging');
 
         $this->app->bind(AppSetupRunner::class, fn($app) => new AppSetupRunner($app->make('log')));
         $this->app->bind(AppTokenWriter::class, fn($app) => new AppTokenWriter($app->make('log')));
@@ -358,6 +454,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
         // Publishing the configuration file.
         $this->publishes([
             __DIR__.'/../config/bitrix24.php' => config_path('bitrix24.php'),
+            __DIR__.'/../config/structured-logging.php' => config_path('structured-logging.php'),
         ], 'bitrix24.config');
 
         // Publishing the views.

@@ -59,6 +59,13 @@ readonly class Bitrix24App
             bitrix24DomainUrl: "https://{$b24api->domain}",
             oauthServerUrl: OauthServerUrlResolver::orDefault($b24api->oauth_server_url),
         );
+
+        // Обёртка логирования: подставляем ДО первого обращения к scope,
+        // чтобы её получили и типизированные сервисы (serviceCache), и core.
+        $this->api->core = \X3Group\Bitrix24\Logging\LoggingCoreFactory::wrap(
+            $this->api->core,
+            $b24api->domain,
+        );
     }
 
     public function getMemberId(): string
