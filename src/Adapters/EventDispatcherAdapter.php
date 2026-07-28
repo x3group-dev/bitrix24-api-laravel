@@ -9,17 +9,17 @@ use Illuminate\Events\QueuedClosure;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
- * Мост между событиями b24phpsdk и шиной Laravel.
+ * Мост между событиями b24phpsdk и диспетчером событий Laravel.
  *
- * ВАЖНО про изоляцию токен-событий. Раньше адаптер брал ГЛОБАЛЬНУЮ шину
- * (resolve('events')) и в неё же вешал слушателей, поэтому listen() регистрировал
+ * ВАЖНО про изоляцию токен-событий. Раньше адаптер брал ГЛОБАЛЬНЫЙ диспетчер
+ * (resolve('events')) и в него же вешал слушателей, поэтому listen() регистрировал
  * слушателя на весь процесс. Слушатель бинда 'appEvents' («записать обновлённый
- * токен в b24_apps») оказывался взведён глобально и срабатывал на рефреш ЛЮБОГО
- * токена, включая пользовательский:
+ * токен в b24_apps») оказывался зарегистрирован глобально и срабатывал на рефреш
+ * ЛЮБОГО токена, включая пользовательский:
  *
- *   что-то строит Bitrix24App    -> резолвит 'appEvents'  (взвёл запись в b24_apps)
+ *   что-то строит Bitrix24App    -> резолвит 'appEvents'  (появился слушатель записи)
  *   следом строится Bitrix24User -> работа от имени сотрудника
- *   протухший токен сотрудника   -> рефреш -> AuthTokenRenewedEvent в общую шину
+ *   протухший токен сотрудника   -> рефреш -> AuthTokenRenewedEvent в общий диспетчер
  *   -> срабатывают ОБА слушателя -> токен сотрудника уезжает в b24_apps
  *
  * Портал оставался с не-админским app-токеном: админ-методы (userfieldconfig.*)
@@ -28,14 +28,14 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
  * аудит молчал. В долгоживущем queue:work хуже: слушатели копятся между джобами,
  * и устаревший слушатель пишет чужой токен в чужую строку b24_users.
  *
- * Теперь слушатели живут в ПРИВАТНОЙ шине экземпляра — строго в границах своего
- * ServiceBuilder. Прочие события SDK по-прежнему пробрасываются в глобальную шину,
+ * Теперь слушатели живут в ПРИВАТНОМ диспетчере экземпляра — строго в границах своего
+ * ServiceBuilder. Прочие события SDK по-прежнему пробрасываются в глобальный диспетчер,
  * чтобы не ломать общеприложенческие слушатели (например PortalDomainUrlChangedEvent).
  */
 class EventDispatcherAdapter implements EventDispatcherInterface
 {
     /**
-     * События, которые НЕ покидают приватную шину: их слушатели пишут токены и
+     * События, которые НЕ покидают приватный диспетчер: их слушатели пишут токены и
      * обязаны быть привязаны к своему клиенту.
      */
     private const SCOPED_EVENTS = [
@@ -47,7 +47,7 @@ class EventDispatcherAdapter implements EventDispatcherInterface
     private ?Dispatcher $global;
 
     /**
-     * @param  Dispatcher|null  $globalDispatcher  шина для «общих» событий; по умолчанию
+     * @param  Dispatcher|null  $globalDispatcher  диспетчер для «общих» событий; по умолчанию
      *                                             берётся из контейнера лениво, в момент отправки.
      */
     public function __construct(?Dispatcher $globalDispatcher = null)
@@ -90,7 +90,7 @@ class EventDispatcherAdapter implements EventDispatcherInterface
         }
 
         // Вне Laravel (юнит-тесты пакета) контейнера нет — работаем только с
-        // приватной шиной.
+        // приватным диспетчером.
         if (! function_exists('resolve')) {
             return null;
         }

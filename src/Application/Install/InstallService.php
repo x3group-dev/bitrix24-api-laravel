@@ -8,12 +8,9 @@ use Bitrix24\SDK\Application\Requests\Events\OnApplicationUninstall\OnApplicatio
 use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
-use Bitrix24\SDK\Events\AuthTokenRenewedEvent;
 use Bitrix24\SDK\Services\Main\Common\EventHandlerMetadata;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Http\Request;
-use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
-use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
@@ -26,40 +23,53 @@ use X3Group\Bitrix24\Models\B24App;
  * (см. {@see AppTokenWriter}) и прогоняет зарегистрированные установщики
  * ({@see AppSetupRunner}). Во всех местах прокидывается oauthServerUrl.
  *
+ * Владельцем портала может стать только опознанный администратор: профиль ставящего
+ * запрашивается и проверяется на ОБОИХ путях, иначе установка прерывается
+ * {@see InstallerCannotOwnPortalException} и не пишется ничего. Проверка не сокращается ни
+ * для первой установки портала, ни для серверного пути: {@see AppTokenWriter::shouldWrite}
+ * первую установку не-админом пропускает, так что единственный гейт — здесь.
+ *
+ * Оба пути устроены в два клиента: сначала ПРОБА («кто ставит?») на диспетчере
+ * {@see InstallTokenProbe} без слушателей, пишущих в БД, затем — уже после гейта — РАБОЧИЙ
+ * клиент на диспетчере 'appEvents', чей рефреш на длинном хвосте установки обязан
+ * сохраниться.
+ *
  * Ошибки НЕ проглатываются — их ловят тонкие стабы-контроллеры.
  */
 class InstallService
 {
     public function handleInstallPage(Request $request): void
     {
-        /** @var EventDispatcherAdapter $eventDispatcher */
-        $eventDispatcher = resolve('appEvents');
-        $eventDispatcher->listen(AuthTokenRenewedEvent::class, function (AuthTokenRenewedEvent $authTokenRenewedEvent): void {
-            /** @var AppAuthDatabaseStorage $appAuthStorage */
-            $appAuthStorage = resolve(AppAuthDatabaseStorage::class, [
-                'memberId' => $authTokenRenewedEvent->getRenewedToken()->memberId,
-            ]);
-            $appAuthStorage->saveRenewedToken($authTokenRenewedEvent->getRenewedToken());
-        });
-
         $oauthServerUrl = OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT'));
+        $memberId = $request->input('member_id');
 
-        $b24 = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
+        // Из query, а не через input(): ровно так же домен берёт ниже
+        // createServiceBuilderFromPlacementRequest, и оба клиента должны ходить туда же,
+        // что записано в b24_apps.domain.
+        $domainUrl = trim((string)$request->query->get('DOMAIN'));
+
+        $applicationProfile = new ApplicationProfile(
+            clientId: config('bitrix24.client_id'),
+            clientSecret: config('bitrix24.client_secret'),
+            scope: Scope::initFromString(config('bitrix24.scope')),
+        );
+
+        $logger = resolve('b24log', [
+            'memberId' => $memberId,
+            'domain' => $domainUrl,
+        ]);
+
+        $probe = new InstallTokenProbe();
+
+        $b24probe = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
             placementRequest: $request,
-            applicationProfile: new ApplicationProfile(
-                clientId: config('bitrix24.client_id'),
-                clientSecret: config('bitrix24.client_secret'),
-                scope: Scope::initFromString(config('bitrix24.scope')),
-            ),
-            eventDispatcher: $eventDispatcher,
-            logger: resolve('b24log', [
-                'memberId' => $request->input('member_id'),
-                'domain' => $request->input('DOMAIN'),
-            ]),
+            applicationProfile: $applicationProfile,
+            eventDispatcher: $probe->eventDispatcher(),
+            logger: $logger,
             oauthServerUrl: $oauthServerUrl,
         );
 
-        $profile = $b24->getMainScope()
+        $profile = $b24probe->getMainScope()
             ->main()
             ->getCurrentUserProfile()
             ->getUserProfile();
@@ -67,18 +77,36 @@ class InstallService
         $isAdmin = (bool)$profile->ADMIN;
         $userId = $profile->ID;
 
+        if (!$isAdmin) {
+            throw InstallerCannotOwnPortalException::notAnAdmin($memberId, $userId);
+        }
+
+        if ($userId === null) {
+            throw InstallerCannotOwnPortalException::notIdentified($memberId);
+        }
+
+        $requestToken = new AuthToken(
+            accessToken: $request->input('AUTH_ID'),
+            refreshToken: $request->input('REFRESH_ID'),
+            expires: (int)$request->input('AUTH_EXPIRES'),
+        );
+
         $localAppAuth = new LocalAppAuth(
-            authToken: new AuthToken(
-                accessToken: $request->input('AUTH_ID'),
-                refreshToken: $request->input('REFRESH_ID'),
-                expires: (int)$request->input('AUTH_EXPIRES'),
-            ),
-            domainUrl: $request->input('DOMAIN'),
+            authToken: $probe->tokenForStorage($requestToken),
+            domainUrl: $domainUrl,
             applicationToken: null,
             oauthServerUrl: $oauthServerUrl,
         );
 
-        app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $request->input('member_id'), $isAdmin);
+        app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
+
+        $b24 = (new ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+            ->init(
+                applicationProfile: $applicationProfile,
+                authToken: $probe->tokenForClient($requestToken),
+                bitrix24DomainUrl: $domainUrl,
+                oauthServerUrl: $oauthServerUrl,
+            );
 
         $b24->getMainScope()->eventManager()->unbindAllEventHandlers();
 
@@ -101,9 +129,10 @@ class InstallService
     public function handleOnAppInstall(Request $request): void
     {
         $auth = $request->input('auth');
+        $memberId = $auth['member_id'];
 
         $oauthServerUrl = OauthServerUrlResolver::orDefault(
-            B24App::query()->where('member_id', $auth['member_id'])->value('oauth_server_url')
+            B24App::query()->where('member_id', $memberId)->value('oauth_server_url')
         );
 
         $applicationProfile = new ApplicationProfile(
@@ -112,43 +141,64 @@ class InstallService
             scope: Scope::initFromString(config('bitrix24.scope')),
         );
 
-        $factory = new ServiceBuilderFactory(
-            eventDispatcher: resolve('appEvents'),
-            log: resolve('b24log', [
-                'memberId' => $auth['member_id'],
-            ]),
+        $logger = resolve('b24log', [
+            'memberId' => $memberId,
+        ]);
+
+        $requestToken = new AuthToken(
+            accessToken: $auth['access_token'],
+            refreshToken: $auth['refresh_token'],
+            expires: (int)($auth['expires_in'] ?? 3600),
         );
 
-        $b24 = $factory->init(
-            applicationProfile: $applicationProfile,
-            authToken: new AuthToken(
-                accessToken: $auth['access_token'],
-                refreshToken: $auth['refresh_token'],
-                expires: (int)($auth['expires_in'] ?? 3600),
-            ),
-            bitrix24DomainUrl: "https://" . $auth['domain'],
-            oauthServerUrl: $oauthServerUrl,
-        );
+        $domainUrl = "https://" . $auth['domain'];
 
-        $profile = $b24->getMainScope()
+        // Проба на том же изолированном диспетчере, что и на install-странице: до гейта
+        // запись в b24_apps не должна быть возможна.
+        $probe = new InstallTokenProbe();
+
+        $b24probe = (new ServiceBuilderFactory(eventDispatcher: $probe->eventDispatcher(), log: $logger))
+            ->init(
+                applicationProfile: $applicationProfile,
+                authToken: $requestToken,
+                bitrix24DomainUrl: $domainUrl,
+                oauthServerUrl: $oauthServerUrl,
+            );
+
+        $profile = $b24probe->getMainScope()
             ->main()
             ->getCurrentUserProfile()
             ->getUserProfile();
 
         $isAdmin = (bool)$profile->ADMIN;
+        $userId = $profile->ID;
+
+        // Проверка не пропускается и на серверном пути: ONAPPINSTALL приходит с токеном
+        // того, кто ставил приложение, а это мог быть и рядовой сотрудник.
+        if (!$isAdmin) {
+            throw InstallerCannotOwnPortalException::notAnAdmin($memberId, $userId);
+        }
+
+        if ($userId === null) {
+            throw InstallerCannotOwnPortalException::notIdentified($memberId);
+        }
 
         $localAppAuth = new LocalAppAuth(
-            authToken: new AuthToken(
-                accessToken: $auth['access_token'],
-                refreshToken: $auth['refresh_token'],
-                expires: (int)($auth['expires_in'] ?? 3600),
-            ),
+            authToken: $probe->tokenForStorage($requestToken),
             domainUrl: $auth['domain'],
             applicationToken: $auth['application_token'] ?? null,
             oauthServerUrl: $oauthServerUrl,
         );
 
-        app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $auth['member_id'], $isAdmin);
+        app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
+
+        $b24 = (new ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+            ->init(
+                applicationProfile: $applicationProfile,
+                authToken: $probe->tokenForClient($requestToken),
+                bitrix24DomainUrl: $domainUrl,
+                oauthServerUrl: $oauthServerUrl,
+            );
 
         app(AppSetupRunner::class)->run($b24, config('bitrix24.installers', []));
     }

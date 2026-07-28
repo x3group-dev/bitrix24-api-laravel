@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $refresh_token
  * @property string $domain
  * @property string $member_id
+ * @property int|null $user_id
  * @property int $expires
  * @property int $expires_in
  * @property string $application_token
@@ -22,6 +23,7 @@ class B24App extends Model
         'domain',
         'oauth_server_url',
         'member_id',
+        'user_id',
         'expires',
         'expires_in',
         'application_token',

@@ -63,6 +63,13 @@ readonly class UserAuthDatabaseStorage implements LocalAppAuthRepositoryInterfac
 
     /**
      * @inheritDoc
+     *
+     * Правило 2: если обновляется токен того самого пользователя, который записан
+     * владельцем портала в b24_apps.user_id, то же обновление уезжает и в b24_apps.
+     *
+     * member_id берётся из самого обновлённого токена, а НЕ из $this->memberId: обновлять
+     * нужно тот портал, чей токен реально обновился, а не тот, под который собрано
+     * хранилище.
      */
     public function saveRenewedToken(RenewedAuthToken $renewedAuthToken): void
     {
@@ -81,6 +88,12 @@ readonly class UserAuthDatabaseStorage implements LocalAppAuthRepositoryInterfac
         $b24user->expires = $renewedAuthToken->authToken->expires;
 
         $b24user->save();
+
+        app(AppTokenWriter::class)->propagateFromUser(
+            $renewedAuthToken->memberId,
+            $this->userId,
+            $renewedAuthToken->authToken,
+        );
     }
 
     /**

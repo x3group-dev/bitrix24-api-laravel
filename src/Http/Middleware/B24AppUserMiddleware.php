@@ -3,11 +3,13 @@
 namespace X3Group\Bitrix24\Http\Middleware;
 
 use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
+use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
+use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
@@ -65,13 +67,17 @@ class B24AppUserMiddleware
                     ->where('member_id', $memberId)
                     ->first();
 
+                // Считается один раз на обе строки: тот же токен в b24_users и в b24_apps
+                // обязан протухать в один и тот же момент.
+                $expires = time() + (int)$request->post('AUTH_EXPIRES') - 600;
+
                 if ($userFind) {
                     $userFind->update([
                         'access_token' => $request->post('AUTH_ID'),
                         'refresh_token' => $request->post('REFRESH_ID'),
                         'domain' => $request->get('DOMAIN'),
                         'is_admin' => $profile->ADMIN,
-                        'expires' => time() + (int)$request->post('AUTH_EXPIRES') - 600,
+                        'expires' => $expires,
                         'expires_in' => 3600,
                     ]);
                 } else {
@@ -84,9 +90,46 @@ class B24AppUserMiddleware
                             'application_token' => $request->post('APP_SID'),
                             'domain' => $request->get('DOMAIN'),
                             'is_admin' => $profile->ADMIN,
-                            'expires' => time() + (int)$request->post('AUTH_EXPIRES') - 600,
+                            'expires' => $expires,
                             'expires_in' => 3600,
                         ]);
+                }
+
+                $refreshId = $request->post('REFRESH_ID');
+
+                // Правило 2: если приложение открыл владелец портала, его свежий токен
+                // размещения уезжает и в b24_apps. Это основной путь, которым app-токен
+                // портала остаётся живым. Кто владелец — решает колонка b24_apps.user_id,
+                // а не этот запрос.
+                //
+                // Профиль без ID до правила 2 не доходит: приведение (int)null дало бы
+                // пользователя 0 и notice «обновляет не владелец» там, где на самом деле
+                // просто не удалось понять, кто пришёл. Сегодня ветка недостижима
+                // (b24_users.user_id объявлен NOT NULL, такой профиль падает выше, на
+                // создании строки), её debug-строки в логе не будет — искать бесполезно.
+                if ($profile->ID === null) {
+                    logger()->debug('b24 app token: propagation skipped (placement user not identified)', [
+                        'member_id' => $memberId,
+                    ]);
+                } elseif ($refreshId === null || $refreshId === '') {
+                    // Токен без refresh'а в b24_apps не пишется: b24_apps.refresh_token —
+                    // NOT NULL, перенос упал бы QueryException'ом в catch ниже и отдал бы
+                    // 401 на всё размещение, причём именно владельцу.
+                    logger()->debug('b24 app token: propagation skipped (placement carries no refresh token)', [
+                        'member_id' => $memberId,
+                        'user_id' => (int)$profile->ID,
+                    ]);
+                } else {
+                    app(AppTokenWriter::class)->propagateFromUser(
+                        $memberId,
+                        (int)$profile->ID,
+                        new AuthToken(
+                            accessToken: $request->post('AUTH_ID'),
+                            refreshToken: $refreshId,
+                            expires: $expires,
+                            expiresIn: 3600,
+                        ),
+                    );
                 }
 
                 auth()->login($userFind);
