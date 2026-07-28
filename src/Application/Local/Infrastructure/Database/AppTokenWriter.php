@@ -101,14 +101,19 @@ class AppTokenWriter
         $b24app->access_token = $token->accessToken;
         $b24app->refresh_token = $token->refreshToken;
         $b24app->expires = $token->expires;
-        // Запасное значение `?? 3600` не удерживается ни одним тестом: замена его на
-        // `max(0, $token->expires - time())` оставляет набор зелёным — померено, а не
-        // предположено. (Само $token->expiresIn, когда оно есть, закреплено:
-        // см. test_the_placement_token_leaves_both_rows_expiring_together.)
-        // Оставлено ради единообразия: ровно так же считают четыре соседних места —
+        // Замерено на этом наборе, обе подстановки прогнаны:
+        //   `?? 3600` -> `?? 999`                        — OK (94 tests, 263 assertions);
+        //   всё выражение -> `max(0, $token->expires - time())` — 1 failure.
+        // То есть незакреплено ровно запасное ЗНАЧЕНИЕ: до него не доходит ни один тест.
+        // Само выражение закреплено — токен размещения приходит с заполненным expiresIn,
+        // и он обязан доехать до колонки как есть (test_the_placement_token_leaves_both_
+        // rows_expiring_together).
+        //
+        // Значение оставлено ради единообразия: ровно так же считают пять соседних мест —
         // AppAuthDatabaseStorage::saveRenewedToken, UserAuthDatabaseStorage::saveRenewedToken,
-        // Bitrix24App::renewTokens, Bitrix24User::renewTokens. Одна конвенция из пяти,
-        // живущая по-своему, хуже пяти одинаковых; менять — так все сразу и отдельно.
+        // Bitrix24App::renewTokens, Bitrix24User::renewTokens, RemoveUninstalledPortals.
+        // Одна конвенция из шести, живущая по-своему, хуже шести одинаковых; менять —
+        // так все сразу и отдельной задачей.
         $b24app->expires_in = $token->expiresIn ?? 3600;
         $b24app->error_update = 0;
         $b24app->save();

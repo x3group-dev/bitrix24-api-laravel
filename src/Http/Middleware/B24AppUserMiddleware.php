@@ -97,6 +97,8 @@ class B24AppUserMiddleware
                         ]);
                 }
 
+                $refreshId = $request->post('REFRESH_ID');
+
                 // Правило 2: если приложение открыл владелец портала, его свежий токен
                 // размещения уезжает и в b24_apps. Это основной способ, которым app-токен
                 // портала остаётся живым: путь хранилища срабатывает, только если токен
@@ -111,9 +113,28 @@ class B24AppUserMiddleware
                 // Так же поступает установка (см. InstallerCannotOwnPortalException::
                 // notIdentified) — неопознанный пользователь это провал проверки, а не
                 // пользователь 0.
+                //
+                // Сегодня эта ветка недостижима, и её debug-строки в логе не будет:
+                // b24_users.user_id объявлен NOT NULL, поэтому профиль без ID падает
+                // выше, на создании строки пользователя. Проверка стоит на случай, если
+                // колонку когда-нибудь ослабят, — искать по логу её бесполезно.
                 if ($profile->ID === null) {
                     logger()->debug('b24 app token: propagation skipped (placement user not identified)', [
                         'member_id' => $memberId,
+                    ]);
+                } elseif ($refreshId === null || $refreshId === '') {
+                    // Токен без refresh'а в b24_apps не пишется вовсе. Записать его нечем:
+                    // b24_apps.refresh_token — NOT NULL, то есть перенос упал бы
+                    // QueryException'ом прямо в catch ниже и отдал бы 401 на всё размещение,
+                    // причём именно владельцу — тому единственному, ради кого правило 2 и
+                    // существует. А без этого ограничения было бы хуже: портал остался бы
+                    // с пустым refresh_token и потерял бы способность обновляться вообще.
+                    //
+                    // Достижим здесь только REFRESH_ID = '' — отсутствующий не доходит,
+                    // b24_users.refresh_token тоже NOT NULL и отвергает его выше.
+                    logger()->debug('b24 app token: propagation skipped (placement carries no refresh token)', [
+                        'member_id' => $memberId,
+                        'user_id' => (int)$profile->ID,
                     ]);
                 } else {
                     app(AppTokenWriter::class)->propagateFromUser(
@@ -121,9 +142,7 @@ class B24AppUserMiddleware
                         (int)$profile->ID,
                         new AuthToken(
                             accessToken: $request->post('AUTH_ID'),
-                            // Пустой REFRESH_ID AuthToken не принимает, а 401 на всём размещении
-                            // из-за него был бы регрессией: до правила 2 такой запрос проходил.
-                            refreshToken: $request->post('REFRESH_ID') ?: null,
+                            refreshToken: $refreshId,
                             expires: $expires,
                             expiresIn: 3600,
                         ),

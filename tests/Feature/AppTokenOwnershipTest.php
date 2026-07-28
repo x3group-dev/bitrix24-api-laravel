@@ -5,6 +5,7 @@ namespace X3Group\Bitrix24\Tests\Feature;
 use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Response\DTO\RenewedAuthToken;
+use Illuminate\Database\QueryException;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\UserAuthDatabaseStorage;
 use X3Group\Bitrix24\Http\Middleware\B24AppUserMiddleware;
@@ -540,6 +541,68 @@ class AppTokenOwnershipTest extends TestCase
 
         self::assertCount(1, $notices);
         self::assertSame(0, $notices[0]['context']['user_id'] ?? null);
+    }
+
+    /**
+     * Характеризующий тест: показывает цену переноса токена без refresh'а.
+     *
+     * b24_apps.refresh_token — NOT NULL, поэтому такой перенос не «запишет что-то не то»,
+     * а свалится QueryException'ом. В middleware он прилетел бы в общий catch и отдал бы
+     * 401 на всё размещение — причём владельцу, единственному, ради кого правило 2 и
+     * существует. Отсюда гейт выше по течению, а не нормализация пустой строки в null:
+     * нормализация ровно этот случай и приводила к падению.
+     *
+     * (На схеме без NOT NULL было бы тише и хуже: портал остался бы с пустым
+     * refresh_token и потерял бы способность обновляться вообще.)
+     */
+    public function test_a_refreshless_token_cannot_be_written_to_the_portal_row_at_all(): void
+    {
+        $refreshless = new AuthToken(
+            accessToken: 'placement',
+            refreshToken: null,
+            expires: time() + 3000,
+            expiresIn: 3600,
+        );
+
+        try {
+            $this->writer()->propagateFromUser(self::MEMBER, self::INSTALLER, $refreshless);
+            self::fail('перенос токена без refresh\'а прошёл — гейт в middleware больше не нужен, перечитать');
+        } catch (QueryException) {
+            // Ожидаемо: колонка NOT NULL.
+        }
+
+        self::assertSame(
+            'app-access',
+            B24App::query()->where('member_id', self::MEMBER)->value('access_token'),
+            'падение переноса оставило портал в половинчатом состоянии',
+        );
+    }
+
+    /**
+     * Размещение без refresh-токена до правила 2 не доходит, и пропуск виден на debug.
+     *
+     * Структурно — по той же причине, что и остальные проверки middleware. Поведенческая
+     * половина инварианта — тест выше: там видно, чем кончается перенос такого токена.
+     */
+    public function test_a_placement_without_a_refresh_token_never_reaches_the_rule(): void
+    {
+        $source = MethodSource::of(B24AppUserMiddleware::class, 'handle');
+
+        $guard = strpos($source, "} elseif (\$refreshId === null || \$refreshId === '') {");
+        $propagate = strpos($source, 'propagateFromUser(');
+
+        self::assertNotFalse($guard, 'токен без refresh\'а уедет в b24_apps и уронит всё размещение на NOT NULL');
+        self::assertLessThan($propagate, $guard, 'проверка refresh-токена стоит после переноса');
+        self::assertStringContainsString(
+            "logger()->debug('b24 app token: propagation skipped (placement carries no refresh token)'",
+            $source,
+            'пропуск размещения без refresh-токена не оставляет следа',
+        );
+        self::assertStringContainsString(
+            'refreshToken: $refreshId,',
+            $source,
+            'в b24_apps уезжает не то же значение, по которому принято решение пропускать',
+        );
     }
 
     /**
