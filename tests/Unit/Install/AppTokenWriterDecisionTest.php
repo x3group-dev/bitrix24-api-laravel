@@ -20,4 +20,21 @@ class AppTokenWriterDecisionTest extends TestCase
     {
         $this->assertFalse(AppTokenWriter::shouldWrite(appExists:true, isAdmin:false));
     }
+
+    public function test_propagates_when_user_is_the_installer(): void
+    {
+        $this->assertTrue(AppTokenWriter::shouldPropagateFromUser(installerUserId: 221, userId: 221));
+    }
+
+    public function test_does_not_propagate_for_another_user(): void
+    {
+        // Ядро фикса: токен рядового сотрудника не должен попадать в b24_apps.
+        $this->assertFalse(AppTokenWriter::shouldPropagateFromUser(installerUserId: 221, userId: 162));
+    }
+
+    public function test_does_not_propagate_when_installer_is_unknown(): void
+    {
+        // NULL = владелец не установлен или не доверен -> fail-closed.
+        $this->assertFalse(AppTokenWriter::shouldPropagateFromUser(installerUserId: null, userId: 221));
+    }
 }

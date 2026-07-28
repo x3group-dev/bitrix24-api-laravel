@@ -16,6 +16,18 @@ class AppTokenWriter
         return !$appExists || $isAdmin;
     }
 
+    /**
+     * Правило 2: обновлённый пользовательский токен переносится в b24_apps, только если
+     * этот пользователь и есть установщик приложения.
+     *
+     * $installerUserId === null означает «владелец не установлен или не доверен»
+     * (например, бэкофилл увидел в токене не-админа) — тогда не пишем ничего.
+     */
+    public static function shouldPropagateFromUser(?int $installerUserId, int $userId): bool
+    {
+        return $installerUserId !== null && $installerUserId === $userId;
+    }
+
     public function saveIfAllowed(LocalAppAuth $auth, string $memberId, bool $isAdmin): void
     {
         $appExists = B24App::query()->where('member_id', $memberId)->exists();
