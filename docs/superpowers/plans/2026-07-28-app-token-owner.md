@@ -160,10 +160,11 @@ class TokenOwnerTest extends TestCase
 {
     public function test_decodes_user_id_from_real_tokens(): void
     {
-        // Реальные токены с боевого портала: сегмент по смещению 24 — ID владельца.
-        self::assertSame(162, TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef000000a2cafebabecafebabe'));
-        self::assertSame(8, TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef00000008cafebabecafebabe'));
-        self::assertSame(221, TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef000000ddcafebabecafebabe'));
+        // Синтетические токены формата Bitrix: 8 hex-цифр по смещению 24 — ID владельца.
+        // Настоящие токены в фикстуры не кладём: это живые учётные данные клиентов.
+        self::assertSame(162, TokenOwner::fromAccessToken('aaaaaaaabbbbbbbbcccccccc000000a2dddddddddddddddddddddddddddddddd'));
+        self::assertSame(8, TokenOwner::fromAccessToken('aaaaaaaabbbbbbbbcccccccc00000008dddddddddddddddddddddddddddddddd'));
+        self::assertSame(221, TokenOwner::fromAccessToken('aaaaaaaabbbbbbbbcccccccc000000dddddddddddddddddddddddddddddddddd'));
     }
 
     public function test_returns_null_for_unusable_input(): void
@@ -182,7 +183,7 @@ class TokenOwnerTest extends TestCase
     public function test_returns_null_for_zero_owner(): void
     {
         // Нулевой ID пользователя не существует — считаем нераспознанным.
-        self::assertNull(TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef00000000cafebabecafebabe'));
+        self::assertNull(TokenOwner::fromAccessToken('aaaaaaaabbbbbbbbcccccccc00000000dddddddddddddddddddddddddddddddd'));
     }
 }
 ```
@@ -497,7 +498,7 @@ git commit -m "feat(tokens): колонка b24_apps.user_id — явный вл
     public function test_backfill_sets_owner_when_token_belongs_to_admin(): void
     {
         // владелец токена — 221 (сегмент 000000dd)
-        $this->makePortal('m-admin', 'deadbeefdeadbeefdeadbeef000000ddcafebabecafebabe', 221, true);
+        $this->makePortal('m-admin', 'aaaaaaaabbbbbbbbcccccccc000000dddddddddddddddddddddddddddddddddd', 221, true);
 
         (new AppOwnerBackfill())->run();
 
@@ -507,7 +508,7 @@ git commit -m "feat(tokens): колонка b24_apps.user_id — явный вл
     public function test_backfill_leaves_null_when_token_belongs_to_non_admin(): void
     {
         // владелец токена — 162 (сегмент 000000a2), не админ: это и есть клоббер
-        $this->makePortal('m-clobbered', 'deadbeefdeadbeefdeadbeef000000a2cafebabecafebabe', 162, false);
+        $this->makePortal('m-clobbered', 'aaaaaaaabbbbbbbbcccccccc000000a2dddddddddddddddddddddddddddddddd', 162, false);
 
         (new AppOwnerBackfill())->run();
 
