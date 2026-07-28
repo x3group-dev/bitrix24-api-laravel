@@ -7,9 +7,10 @@ use X3Group\Bitrix24\Support\TokenOwner;
 
 class TokenOwnerTest extends TestCase
 {
-    public function test_decodes_user_id_from_real_tokens(): void
+    public function test_decodes_user_id_from_token(): void
     {
-        // Реальные токены с боевого портала: сегмент по смещению 24 — ID владельца.
+        // Синтетические токены, имитирующие формат реального Bitrix24 access-токена:
+        // 24-символьный заведомо фейковый префикс + 8 hex-цифр владельца (смещение 24) + произвольный хвост.
         self::assertSame(162, TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef000000a2cafebabecafebabe'));
         self::assertSame(8, TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef00000008cafebabecafebabe'));
         self::assertSame(221, TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef000000ddcafebabecafebabe'));
@@ -31,6 +32,7 @@ class TokenOwnerTest extends TestCase
     public function test_returns_null_for_zero_owner(): void
     {
         // Нулевой ID пользователя не существует — считаем нераспознанным.
+        // Тот же синтетический формат, что и выше, но owner-сегмент обнулён.
         self::assertNull(TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef00000000cafebabecafebabe'));
     }
 }
