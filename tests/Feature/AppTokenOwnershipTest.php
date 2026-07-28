@@ -16,7 +16,7 @@ use X3Group\Bitrix24\Tests\Support\MethodSource;
 use X3Group\Bitrix24\Tests\TestCase;
 
 /**
- * Исполнители правил записи в b24_apps: перенос обновлённого токена установщика
+ * Исполнители правил записи в b24_apps: перенос обновлённого токена владельца
  * (propagateFromUser) и запись владельца при установке (saveIfAllowed).
  *
  * Ключевой инвариант: владельца берём из колонки b24_apps.user_id того же портала,
@@ -166,7 +166,7 @@ class AppTokenOwnershipTest extends TestCase
      * узнавали от клиента. Молчаливое правило 2 повторило бы ту же ошибку — только
      * теперь молчали бы и о законном рефреше, заблокированном протухшим user_id.
      */
-    public function test_refresh_by_non_installer_is_recorded(): void
+    public function test_refresh_by_non_owner_is_recorded(): void
     {
         $this->writer()->propagateFromUser(self::MEMBER, self::OTHER_USER, $this->token('foreign'));
 
@@ -174,7 +174,7 @@ class AppTokenOwnershipTest extends TestCase
 
         self::assertCount(1, $notices, 'блокировка чужого рефреша прошла молча');
         self::assertSame(self::MEMBER, $notices[0]['context']['member_id'] ?? null);
-        self::assertSame(self::INSTALLER, $notices[0]['context']['installer_user_id'] ?? null, 'в логе нет владельца портала');
+        self::assertSame(self::INSTALLER, $notices[0]['context']['owner_user_id'] ?? null, 'в логе нет владельца портала');
         self::assertSame(self::OTHER_USER, $notices[0]['context']['user_id'] ?? null, 'в логе нет того, кто пытался обновить');
     }
 
@@ -200,8 +200,8 @@ class AppTokenOwnershipTest extends TestCase
         self::assertCount(1, $debug, 'отказ из-за неизвестного владельца не оставил следа вообще');
         self::assertSame(self::MEMBER, $debug[0]['context']['member_id'] ?? null);
         self::assertSame(self::INSTALLER, $debug[0]['context']['user_id'] ?? null);
-        self::assertArrayHasKey('installer_user_id', $debug[0]['context']);
-        self::assertNull($debug[0]['context']['installer_user_id'], 'неизвестный владелец должен быть виден как NULL');
+        self::assertArrayHasKey('owner_user_id', $debug[0]['context']);
+        self::assertNull($debug[0]['context']['owner_user_id'], 'неизвестный владелец должен быть виден как NULL');
     }
 
     /**
@@ -342,7 +342,7 @@ class AppTokenOwnershipTest extends TestCase
         $notices = $this->logger->ofLevel('notice');
 
         self::assertCount(1, $notices, 'чужой рефреш через настоящий путь прошёл молча');
-        self::assertSame(self::INSTALLER, $notices[0]['context']['installer_user_id'] ?? null);
+        self::assertSame(self::INSTALLER, $notices[0]['context']['owner_user_id'] ?? null);
         self::assertSame(self::OTHER_USER, $notices[0]['context']['user_id'] ?? null);
     }
 
@@ -525,7 +525,7 @@ class AppTokenOwnershipTest extends TestCase
      * отсекать сам middleware, а не исполнитель.
      *
      * Исполнитель принимает int и другого языка не знает: пользователь 0 для него —
-     * обычный не-владелец, то есть notice «обновляет не установщик». А это единственный
+     * обычный не-владелец, то есть notice «обновляет не владелец». А это единственный
      * громкий сигнал всей фичи, и означать он должен попытку захвата портала, а не
      * «профиль пришёл без ID». Отсюда гейт выше по течению — и он же есть в установке
      * (InstallerCannotOwnPortalException::notIdentified).
