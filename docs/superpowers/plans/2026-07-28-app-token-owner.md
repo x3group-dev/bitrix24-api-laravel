@@ -83,7 +83,11 @@ abstract class TestCase extends BaseTestCase
             'driver' => 'sqlite',
             'database' => ':memory:',
             'prefix' => '',
-            'foreign_key_constraints' => false,
+            // Ограничения включены намеренно: харнесс существует ради проверки реальных
+            // записей в b24_apps/b24_users. С выключенными FK тесты могли бы собирать
+            // состояния, невозможные в проде (строка пользователя без портала), и всё
+            // равно быть зелёными. Прод — MySQL/InnoDB с включёнными ограничениями.
+            'foreign_key_constraints' => true,
         ]);
 
         $app['config']->set('bitrix24.client_id', 'test-client-id');
