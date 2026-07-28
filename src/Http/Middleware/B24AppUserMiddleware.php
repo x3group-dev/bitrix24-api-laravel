@@ -102,18 +102,33 @@ class B24AppUserMiddleware
                 // портала остаётся живым: путь хранилища срабатывает, только если токен
                 // протух прямо посреди запроса, а сюда владелец приходит на каждом заходе.
                 // Кто владелец — решает колонка b24_apps.user_id, не этот запрос.
-                app(AppTokenWriter::class)->propagateFromUser(
-                    $memberId,
-                    (int)$profile->ID,
-                    new AuthToken(
-                        accessToken: $request->post('AUTH_ID'),
-                        // Пустой REFRESH_ID AuthToken не принимает, а 401 на всём размещении
-                        // из-за него был бы регрессией: до правила 2 такой запрос проходил.
-                        refreshToken: $request->post('REFRESH_ID') ?: null,
-                        expires: $expires,
-                        expiresIn: 3600,
-                    ),
-                );
+                //
+                // Профиль без ID до правила 2 не доходит. Приведение (int)null дало бы
+                // пользователя 0, а отказ по нему — notice «обновляет не установщик», то
+                // есть сигнал о захвате портала там, где на самом деле просто не удалось
+                // понять, кто пришёл. Этот notice — единственный громкий сигнал всей фичи,
+                // и разбавлять его состоянием «не опознан» нельзя: его перестанут читать.
+                // Так же поступает установка (см. InstallerCannotOwnPortalException::
+                // notIdentified) — неопознанный пользователь это провал проверки, а не
+                // пользователь 0.
+                if ($profile->ID === null) {
+                    logger()->debug('b24 app token: propagation skipped (placement user not identified)', [
+                        'member_id' => $memberId,
+                    ]);
+                } else {
+                    app(AppTokenWriter::class)->propagateFromUser(
+                        $memberId,
+                        (int)$profile->ID,
+                        new AuthToken(
+                            accessToken: $request->post('AUTH_ID'),
+                            // Пустой REFRESH_ID AuthToken не принимает, а 401 на всём размещении
+                            // из-за него был бы регрессией: до правила 2 такой запрос проходил.
+                            refreshToken: $request->post('REFRESH_ID') ?: null,
+                            expires: $expires,
+                            expiresIn: 3600,
+                        ),
+                    );
+                }
 
                 auth()->login($userFind);
                 if (!auth()->check()) {

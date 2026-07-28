@@ -519,6 +519,59 @@ class AppTokenOwnershipTest extends TestCase
         self::assertCount(1, $this->logger->ofLevel('notice'), 'подмена app-токена с размещения прошла молча');
     }
 
+    /**
+     * Характеризующий тест: показывает, ПОЧЕМУ неопознанного пользователя обязан
+     * отсекать сам middleware, а не исполнитель.
+     *
+     * Исполнитель принимает int и другого языка не знает: пользователь 0 для него —
+     * обычный не-владелец, то есть notice «обновляет не установщик». А это единственный
+     * громкий сигнал всей фичи, и означать он должен попытку захвата портала, а не
+     * «профиль пришёл без ID». Отсюда гейт выше по течению — и он же есть в установке
+     * (InstallerCannotOwnPortalException::notIdentified).
+     *
+     * Если исполнитель когда-нибудь научится различать этот случай сам, тест покраснеет
+     * и заставит перечитать гейт, а не оставить две проверки, живущие своей жизнью.
+     */
+    public function test_the_writer_alone_would_call_an_unidentified_user_a_takeover_attempt(): void
+    {
+        $this->writer()->propagateFromUser(self::MEMBER, 0, $this->token('fresh'));
+
+        $notices = $this->logger->ofLevel('notice');
+
+        self::assertCount(1, $notices);
+        self::assertSame(0, $notices[0]['context']['user_id'] ?? null);
+    }
+
+    /**
+     * Профиль без ID до правила 2 не доходит, а сам пропуск виден на debug.
+     *
+     * Структурно по той же причине, что и остальные проверки middleware: handle()
+     * поведенчески не прогоняется. Поведенческая половина этого инварианта — тест выше:
+     * там видно, во что превратился бы (int)null, если бы гейта не было.
+     */
+    public function test_an_unidentified_placement_user_never_reaches_the_rule(): void
+    {
+        $source = MethodSource::of(B24AppUserMiddleware::class, 'handle');
+
+        $guard = strpos($source, 'if ($profile->ID === null)');
+        $propagate = strpos($source, 'propagateFromUser(');
+
+        self::assertNotFalse($guard, 'профиль без ID уедет в правило 2 пользователем 0');
+        self::assertNotFalse($propagate, 'перенос токена из middleware исчез');
+        self::assertLessThan($propagate, $guard, 'проверка на неопознанного пользователя стоит после переноса');
+        self::assertSame(1, substr_count($source, 'propagateFromUser('), 'перенос зовут ещё и мимо гейта');
+        self::assertStringContainsString(
+            "logger()->debug('b24 app token: propagation skipped (placement user not identified)'",
+            $source,
+            'пропуск неопознанного пользователя не оставляет следа — диагностировать его будет нечем',
+        );
+        self::assertStringNotContainsString(
+            '->notice(',
+            $source,
+            'неопознанный пользователь шумит на уровне захвата портала и заглушает настоящий сигнал',
+        );
+    }
+
     private function storage(string $memberId, int $userId): UserAuthDatabaseStorage
     {
         return new UserAuthDatabaseStorage($memberId, $userId);
