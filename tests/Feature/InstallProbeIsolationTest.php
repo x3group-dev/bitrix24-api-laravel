@@ -6,6 +6,7 @@ use Bitrix24\SDK\Application\ApplicationStatus;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Response\DTO\RenewedAuthToken;
 use Bitrix24\SDK\Events\AuthTokenRenewedEvent;
+use PHPUnit\Framework\Attributes\DataProvider;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
 use X3Group\Bitrix24\Application\Install\InstallService;
 use X3Group\Bitrix24\Models\B24App;
@@ -13,14 +14,22 @@ use X3Group\Bitrix24\Tests\Support\MethodSource;
 use X3Group\Bitrix24\Tests\TestCase;
 
 /**
- * Пробный REST-вызов на install-странице не должен уметь писать в b24_apps.
+ * Раскладка шин по фазам установки: проба — изолированно, 'appEvents' — только после гейта.
  *
- * handleInstallPage() строит клиента из PLACEMENT-запроса — то есть с токеном ОТКРЫВШЕГО
- * страницу, а не портала — и первым делом дёргает getCurrentUserProfile(). Если этому
- * клиенту дать шину 'appEvents', на нём взведён слушатель «записать обновлённый токен в
- * b24_apps»: протухший токен открывшего обновляется прямо на пробном вызове и уезжает в
- * b24_apps мимо AppTokenWriter — мимо admin-gate'а и мимо записи владельца. Изоляция шин
- * из 3.3.1 тут не помогает: слушатель и клиент — один и тот же экземпляр.
+ * Пробный вызов идёт ДО проверки админства, то есть тогда, когда ещё неизвестно, имеет ли
+ * ставящий право на портал. Если дать пробному клиенту шину 'appEvents', на нём взведён
+ * слушатель «записать обновлённый токен в b24_apps»: протухший токен обновляется прямо на
+ * пробном вызове и уезжает в b24_apps мимо AppTokenWriter — мимо и гейта, и записи
+ * владельца. На install-странице это ещё и токен ЧУЖОГО пользователя: клиент там строится
+ * из PLACEMENT-запроса, то есть с токеном открывшего страницу, а не портала. Изоляция шин
+ * из 3.3.1 не спасает: слушатель и клиент — один и тот же экземпляр.
+ *
+ * Обратная сторона: после гейта рефреш обязан сохраняться. Установщики — это десятки
+ * REST-вызовов, и потерянный там рефреш оставит в b24_apps отозванный refresh_token.
+ * Поэтому 'appEvents' не убрана, а сдвинута за гейт.
+ *
+ * Поведенчески здесь проверены сами шины (кто пишет в b24_apps, а кто нет); то, что
+ * InstallService раздаёт их по фазам именно так, удерживается структурно.
  */
 class InstallProbeIsolationTest extends TestCase
 {
@@ -86,22 +95,73 @@ class InstallProbeIsolationTest extends TestCase
     }
 
     /**
-     * Структурная страховка: поведенчески пробный вызов не воспроизвести — он живой REST.
+     * @return array<string, array{string}>
      */
-    public function test_the_install_page_builds_its_client_on_a_listener_free_bus(): void
+    public static function installPaths(): array
     {
-        $source = MethodSource::of(InstallService::class, 'handleInstallPage');
+        return [
+            'install-страница (PLACEMENT)' => ['handleInstallPage'],
+            'серверное событие ONAPPINSTALL' => ['handleOnAppInstall'],
+        ];
+    }
 
-        self::assertStringContainsString('new EventDispatcherAdapter()', $source);
-        self::assertStringNotContainsString(
-            "resolve('appEvents')",
-            $source,
-            'пробный вызов на install-странице снова умеет писать в b24_apps',
+    /**
+     * Структурная страховка: поведенчески раскладку не воспроизвести — оба клиента
+     * упираются в живой REST Битрикса. Проверяется ровно порядок:
+     *
+     *   проба на изолированной шине -> «кто ставит?» -> гейт -> запись -> шина 'appEvents'
+     *
+     * Каждое звено осмысленно. Проба после гейта бессмысленна; гейт после записи ничего
+     * не спасает; 'appEvents' до гейта — это и есть та дыра, ради которой всё затевалось.
+     */
+    #[DataProvider('installPaths')]
+    public function test_the_probe_runs_isolated_and_the_app_events_bus_only_after_the_gate(string $method): void
+    {
+        $source = MethodSource::of(InstallService::class, $method);
+
+        $steps = [
+            'проба на изолированной шине' => 'new InstallTokenProbe()',
+            'вопрос «кто ставит?»' => 'getCurrentUserProfile()',
+            'гейт' => 'throw InstallerCannotOwnPortalException::',
+            'запись app-токена' => 'saveIfAllowed(',
+            "шина 'appEvents'" => "resolve('appEvents')",
+        ];
+
+        $positions = [];
+        foreach ($steps as $label => $needle) {
+            $position = strpos($source, $needle);
+            self::assertNotFalse($position, "в {$method} нет шага «{$label}» ({$needle})");
+            $positions[$label] = $position;
+        }
+
+        $labels = array_keys($steps);
+        for ($i = 1; $i < count($labels); $i++) {
+            self::assertLessThan(
+                $positions[$labels[$i]],
+                $positions[$labels[$i - 1]],
+                "в {$method} шаг «{$labels[$i - 1]}» идёт после «{$labels[$i]}»",
+            );
+        }
+    }
+
+    /**
+     * Пробный клиент не должен строиться на шине, которая пишет в БД. Отдельно от порядка:
+     * порядок ловит «'appEvents' раньше гейта», а это — «'appEvents' ещё и у пробы».
+     */
+    #[DataProvider('installPaths')]
+    public function test_the_probe_client_is_not_built_on_the_app_events_bus(string $method): void
+    {
+        $source = MethodSource::of(InstallService::class, $method);
+
+        self::assertSame(
+            1,
+            substr_count($source, "resolve('appEvents')"),
+            "в {$method} шина 'appEvents' используется дважды — вероятно, её отдали и пробе",
         );
-        self::assertStringNotContainsString(
-            'AuthTokenRenewedEvent',
+        self::assertStringContainsString(
+            'eventDispatcher: $probe->eventDispatcher()',
             $source,
-            'слушатель токен-события вернулся в handleInstallPage — он и был дырой',
+            "в {$method} пробный клиент строится не на изолированной шине пробы",
         );
     }
 }
