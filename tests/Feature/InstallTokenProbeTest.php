@@ -51,6 +51,11 @@ class InstallTokenProbeTest extends TestCase
     /**
      * Токен ровно в том виде, в каком его отдаёт рефреш SDK: expires — АБСОЛЮТНЫЙ
      * timestamp, expiresIn не заполнен (AuthToken::initFromArray принимает три поля).
+     *
+     * expires_in в payload есть намеренно: OAuth-сервер Битрикса присылает это поле
+     * всегда, а сегодняшний AuthToken::initFromArray его игнорирует. Если убрать ключ
+     * из фикстуры, пин ниже станет декоративным — он останется зелёным и в тот день,
+     * когда SDK начнёт заполнять expiresIn, потому что заполнять будет нечем.
      */
     private function renewed(string $accessToken): AuthTokenRenewedEvent
     {
@@ -58,6 +63,7 @@ class InstallTokenProbeTest extends TestCase
             'access_token' => $accessToken,
             'refresh_token' => $accessToken . '-refresh',
             'expires' => time() + self::LIFETIME,
+            'expires_in' => self::LIFETIME,
             'member_id' => self::MEMBER,
             'client_endpoint' => 'https://portal.bitrix24.ru/rest/',
             'server_endpoint' => 'https://oauth.bitrix24.tech/rest/',
