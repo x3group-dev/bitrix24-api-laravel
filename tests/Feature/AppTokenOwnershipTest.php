@@ -7,9 +7,11 @@ use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Response\DTO\RenewedAuthToken;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\UserAuthDatabaseStorage;
+use X3Group\Bitrix24\Http\Middleware\B24AppUserMiddleware;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 use X3Group\Bitrix24\Tests\Support\Fakes\RecordingLogger;
+use X3Group\Bitrix24\Tests\Support\MethodSource;
 use X3Group\Bitrix24\Tests\TestCase;
 
 /**
@@ -309,6 +311,14 @@ class AppTokenOwnershipTest extends TestCase
      * Зеркало предыдущего: рядовой сотрудник обновляет ТОЛЬКО себя. Проверяем именно
      * содержимое колонки портала, а не отсутствие исключения: исходная авария была
      * тихой записью, она бы ничего не выбросила.
+     *
+     * Заодно это единственный сценарий, где видно, что обновляющегося пользователя берут
+     * из хранилища, а не из b24_apps.user_id: владелец, сверенный сам с собой, — тавтология,
+     * которая пропускала бы кого угодно. Здесь портал принадлежит 221, рефреш идёт от 162,
+     * и такая реализация увидела бы 221 === 221 и записала бы 'employee'.
+     *
+     * И отказ обязан быть виден в логе — по той же причине, по которой был невиден исходный
+     * инцидент.
      */
     public function test_non_owner_refresh_leaves_the_portal_token_alone(): void
     {
@@ -327,6 +337,12 @@ class AppTokenOwnershipTest extends TestCase
             B24App::query()->where('member_id', self::MEMBER)->value('user_id'),
             'рефреш сотрудника переписал владельца портала',
         );
+
+        $notices = $this->logger->ofLevel('notice');
+
+        self::assertCount(1, $notices, 'чужой рефреш через настоящий путь прошёл молча');
+        self::assertSame(self::INSTALLER, $notices[0]['context']['installer_user_id'] ?? null);
+        self::assertSame(self::OTHER_USER, $notices[0]['context']['user_id'] ?? null);
     }
 
     public function test_refresh_on_a_portal_without_a_known_owner_updates_only_the_user(): void
@@ -347,13 +363,16 @@ class AppTokenOwnershipTest extends TestCase
     /**
      * Пара (member_id, user_id) должна собираться из тех же источников, по которым
      * ищется строка пользователя: member_id — из ОБНОВЛЁННОГО ТОКЕНА, user_id — из
-     * хранилища. Источники разные, и подменить один другим — не опечатка, а рабочая
-     * ошибка: в saveRenewedToken рядом лежат и $this->memberId, и
-     * $renewedAuthToken->memberId, и они могут не совпадать.
+     * хранилища. В saveRenewedToken рядом лежат и $this->memberId, и
+     * $renewedAuthToken->memberId, и подменить один другим — не опечатка, а совершенно
+     * естественно выглядящая правка.
      *
-     * Здесь хранилище создано под member-1, а рефреш пришёл по member-2. Обновиться
-     * обязан member-2 — портал, чей токен реально обновился; реализация, взявшая
-     * $this->memberId, промахнётся мимо цели и попадёт по чужому порталу.
+     * В боевой проводке ('userEvents' в Bitrix24ServiceProvider) эти два member_id
+     * сегодня всегда совпадают, так что тест защищает не наблюдаемый в проде случай, а
+     * сам инвариант: обновляется портал, чей токен реально обновился. Связь держится на
+     * одной строке в провайдере, а цена ошибки — тихая запись в чужой портал.
+     *
+     * Здесь хранилище создано под member-1, а рефреш пришёл по member-2.
      */
     public function test_the_portal_updated_is_the_one_the_renewed_token_belongs_to(): void
     {
@@ -376,31 +395,128 @@ class AppTokenOwnershipTest extends TestCase
         );
     }
 
-    /**
-     * Обратная сторона той же пары: user_id берётся из хранилища и ни в коем случае не
-     * из b24_apps.user_id. Владелец, сверенный сам с собой, — тавтология: пропускало бы
-     * кого угодно.
-     *
-     * Портал принадлежит 221, а рефреш идёт от 162, и у 162 есть своя строка в b24_users.
-     * Реализация, подставившая владельца из b24_apps, увидит 221 === 221 и запишет.
-     */
-    public function test_the_refreshing_user_is_taken_from_the_storage_not_from_the_portal_row(): void
-    {
-        $this->b24user(self::MEMBER, self::OTHER_USER);
+    // --- Правило 2 на пути размещения: B24AppUserMiddleware ---
 
-        $this->storage(self::MEMBER, self::OTHER_USER)->saveRenewedToken($this->renewed(self::MEMBER, 'impostor'));
+    /**
+     * Что здесь исполняется по-настоящему, а что нет.
+     *
+     * Поведенчески прогнать B24AppUserMiddleware::handle() нельзя: он строит клиента
+     * статической фабрикой SDK и спрашивает getCurrentUserProfile() у живого Битрикса —
+     * подменить HTTP-клиент негде. Поэтому граница проведена так же, как в
+     * {@see \X3Group\Bitrix24\Tests\Feature\InstallAdminGuardTest} для InstallService:
+     *
+     *   - исполняется по-настоящему: исполнитель (propagateFromUser) на токене ровно того
+     *     вида, какой подаёт middleware, вместе с записанной тем же значением строкой
+     *     b24_users — тест ниже про совпадение сроков;
+     *   - структурно (чтение исходника, {@see MethodSource}): что middleware вообще зовёт
+     *     перенос, что пользователя берёт из профиля Битрикса, и что срок жизни считает
+     *     один раз на обе строки.
+     *
+     * Структурные проверки — не поведенческое покрытие. Они ловят ровно то, ради чего
+     * поставлены: удаление вызова и подмену его аргументов.
+     */
+    public function test_opening_the_app_propagates_the_placement_token_to_the_portal(): void
+    {
+        self::assertStringContainsString(
+            'propagateFromUser(',
+            MethodSource::of(B24AppUserMiddleware::class, 'handle'),
+            'заход владельца в приложение не обновляет app-токен портала: остаётся только путь '
+            . 'протухания токена посреди запроса, а это редкий случай, а не основной',
+        );
+    }
+
+    /**
+     * Пользователя для правила 2 обязан давать профиль, за которым middleware только что
+     * сходил в Битрикс. Тело запроса на эту роль не годится: оно приходит из браузера
+     * клиента, и user_id оттуда — это заявление, а не факт.
+     */
+    public function test_the_propagated_user_comes_from_the_bitrix_profile(): void
+    {
+        self::assertMatchesRegularExpression(
+            '/propagateFromUser\(\s*\$memberId,\s*\(int\)\$profile->ID,/',
+            MethodSource::of(B24AppUserMiddleware::class, 'handle'),
+            'владельца определяют не по профилю из Битрикса — правило 2 можно обмануть телом запроса',
+        );
+    }
+
+    /**
+     * Один и тот же токен лежит в двух строках, и протухать они обязаны одновременно.
+     * Проверяется не совпадение двух выражений (одинаковые копии разъезжаются молча), а
+     * то, что выражение ровно одно: срок считается один раз и раздаётся обеим строкам.
+     */
+    public function test_both_rows_get_one_and_the_same_expiry(): void
+    {
+        $source = MethodSource::of(B24AppUserMiddleware::class, 'handle');
+
+        self::assertSame(
+            1,
+            substr_count($source, "post('AUTH_EXPIRES')"),
+            'срок жизни токена считается больше одного раза — копии разъедутся, и строки протухнут в разное время',
+        );
+        self::assertSame(
+            2,
+            substr_count($source, "'expires' => \$expires,"),
+            'строка b24_users получает срок не из общего значения',
+        );
+        self::assertStringContainsString(
+            'expires: $expires,',
+            $source,
+            'в b24_apps уезжает срок, посчитанный отдельно от строки пользователя',
+        );
+    }
+
+    /**
+     * Исполнитель на данных ровно того вида, какой подаёт middleware: строка b24_users и
+     * токен для переноса собраны из одного значения $expires. Сам middleware при этом не
+     * выполняется — что он действительно раздаёт одно значение, держит тест выше.
+     */
+    public function test_the_placement_token_leaves_both_rows_expiring_together(): void
+    {
+        $expires = time() + 3600 - 600;
+
+        $this->b24user(self::MEMBER, self::INSTALLER, $expires);
+
+        $this->writer()->propagateFromUser(self::MEMBER, self::INSTALLER, new AuthToken(
+            accessToken: 'placement',
+            refreshToken: 'placement-refresh',
+            expires: $expires,
+            expiresIn: 3600,
+        ));
+
+        $app = B24App::query()->where('member_id', self::MEMBER)->first();
+
+        self::assertSame('placement', $app->access_token, 'заход владельца не обновил app-токен портала');
+        self::assertSame(
+            (int) B24User::query()
+                ->where('member_id', self::MEMBER)
+                ->where('user_id', self::INSTALLER)
+                ->value('expires'),
+            (int) $app->expires,
+            'строки разошлись по сроку: один и тот же токен протухает в них в разное время',
+        );
+        self::assertSame(3600, (int) $app->expires_in);
+    }
+
+    /**
+     * Заход рядового сотрудника: своя строка обновляется, портал — нет. Ровно эта запись
+     * и ломала клиентов, и приходит она чаще всего именно отсюда — с каждого открытия
+     * приложения, а не только с рефреша по истечении срока.
+     */
+    public function test_a_non_owner_opening_the_app_leaves_the_portal_token_alone(): void
+    {
+        $this->writer()->propagateFromUser(self::MEMBER, self::OTHER_USER, new AuthToken(
+            accessToken: 'employee-placement',
+            refreshToken: 'employee-placement-refresh',
+            expires: time() + 3600 - 600,
+            expiresIn: 3600,
+        ));
 
         self::assertSame(
             'app-access',
             B24App::query()->where('member_id', self::MEMBER)->value('access_token'),
-            'владельца сверили с ним же самим — правило 2 пропускает любого',
+            'токен сотрудника затёр app-токен портала на заходе в приложение',
         );
-
-        $notices = $this->logger->ofLevel('notice');
-
-        self::assertCount(1, $notices, 'чужой рефреш через настоящий путь прошёл молча');
-        self::assertSame(self::INSTALLER, $notices[0]['context']['installer_user_id'] ?? null);
-        self::assertSame(self::OTHER_USER, $notices[0]['context']['user_id'] ?? null);
+        self::assertCount(1, $this->logger->ofLevel('notice'), 'подмена app-токена с размещения прошла молча');
     }
 
     private function storage(string $memberId, int $userId): UserAuthDatabaseStorage
@@ -439,14 +555,14 @@ class AppTokenOwnershipTest extends TestCase
         ]);
     }
 
-    private function b24user(string $memberId, int $userId): void
+    private function b24user(string $memberId, int $userId, ?int $expires = null): void
     {
         B24User::query()->create([
             'member_id' => $memberId,
             'user_id' => $userId,
             'access_token' => 'user-access',
             'refresh_token' => 'user-refresh',
-            'expires' => time() + 3600,
+            'expires' => $expires ?? time() + 3600,
             'expires_in' => 3600,
             'domain' => 'https://portal.bitrix24.ru',
             // Правило 2 опирается на колонку b24_apps.user_id, а не на этот флаг:

@@ -3,11 +3,13 @@
 namespace X3Group\Bitrix24\Http\Middleware;
 
 use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
+use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
+use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
@@ -65,13 +67,19 @@ class B24AppUserMiddleware
                     ->where('member_id', $memberId)
                     ->first();
 
+                // Срок жизни считается один раз на обе строки: тот же токен в b24_users и
+                // в b24_apps обязан протухать в один и тот же момент. Два одинаковых с виду
+                // выражения разъезжаются молча, и разъедутся именно колонки, по которым
+                // решают, пора ли рефрешить.
+                $expires = time() + (int)$request->post('AUTH_EXPIRES') - 600;
+
                 if ($userFind) {
                     $userFind->update([
                         'access_token' => $request->post('AUTH_ID'),
                         'refresh_token' => $request->post('REFRESH_ID'),
                         'domain' => $request->get('DOMAIN'),
                         'is_admin' => $profile->ADMIN,
-                        'expires' => time() + (int)$request->post('AUTH_EXPIRES') - 600,
+                        'expires' => $expires,
                         'expires_in' => 3600,
                     ]);
                 } else {
@@ -84,10 +92,28 @@ class B24AppUserMiddleware
                             'application_token' => $request->post('APP_SID'),
                             'domain' => $request->get('DOMAIN'),
                             'is_admin' => $profile->ADMIN,
-                            'expires' => time() + (int)$request->post('AUTH_EXPIRES') - 600,
+                            'expires' => $expires,
                             'expires_in' => 3600,
                         ]);
                 }
+
+                // Правило 2: если приложение открыл владелец портала, его свежий токен
+                // размещения уезжает и в b24_apps. Это основной способ, которым app-токен
+                // портала остаётся живым: путь хранилища срабатывает, только если токен
+                // протух прямо посреди запроса, а сюда владелец приходит на каждом заходе.
+                // Кто владелец — решает колонка b24_apps.user_id, не этот запрос.
+                app(AppTokenWriter::class)->propagateFromUser(
+                    $memberId,
+                    (int)$profile->ID,
+                    new AuthToken(
+                        accessToken: $request->post('AUTH_ID'),
+                        // Пустой REFRESH_ID AuthToken не принимает, а 401 на всём размещении
+                        // из-за него был бы регрессией: до правила 2 такой запрос проходил.
+                        refreshToken: $request->post('REFRESH_ID') ?: null,
+                        expires: $expires,
+                        expiresIn: 3600,
+                    ),
+                );
 
                 auth()->login($userFind);
                 if (!auth()->check()) {

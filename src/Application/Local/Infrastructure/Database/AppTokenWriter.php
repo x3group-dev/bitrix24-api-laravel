@@ -101,6 +101,14 @@ class AppTokenWriter
         $b24app->access_token = $token->accessToken;
         $b24app->refresh_token = $token->refreshToken;
         $b24app->expires = $token->expires;
+        // Запасное значение `?? 3600` не удерживается ни одним тестом: замена его на
+        // `max(0, $token->expires - time())` оставляет набор зелёным — померено, а не
+        // предположено. (Само $token->expiresIn, когда оно есть, закреплено:
+        // см. test_the_placement_token_leaves_both_rows_expiring_together.)
+        // Оставлено ради единообразия: ровно так же считают четыре соседних места —
+        // AppAuthDatabaseStorage::saveRenewedToken, UserAuthDatabaseStorage::saveRenewedToken,
+        // Bitrix24App::renewTokens, Bitrix24User::renewTokens. Одна конвенция из пяти,
+        // живущая по-своему, хуже пяти одинаковых; менять — так все сразу и отдельно.
         $b24app->expires_in = $token->expiresIn ?? 3600;
         $b24app->error_update = 0;
         $b24app->save();
