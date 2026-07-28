@@ -5,9 +5,11 @@
          colors="true"
          failOnWarning="true">
     <testsuites>
-        <testsuite name="Package">
-            <directory suffix=".php">./tests/</directory>
-            <exclude>./tests/Support</exclude>
+        <testsuite name="Unit">
+            <directory suffix=".php">./tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory suffix=".php">./tests/Feature</directory>
         </testsuite>
     </testsuites>
     <source>
