@@ -23,7 +23,7 @@ abstract class TestCase extends BaseTestCase
             'driver' => 'sqlite',
             'database' => ':memory:',
             'prefix' => '',
-            'foreign_key_constraints' => false,
+            'foreign_key_constraints' => true,
         ]);
 
         $app['config']->set('bitrix24.client_id', 'test-client-id');
