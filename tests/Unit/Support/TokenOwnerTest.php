@@ -27,6 +27,12 @@ class TokenOwnerTest extends TestCase
     {
         // 32+ символа, но в позиции владельца не hex — формат не наш.
         self::assertNull(TokenOwner::fromAccessToken(str_repeat('z', 40)));
+
+        // Сегмент owner'а — не hex, но hexdec() всё равно даёт ненулевое число
+        // ('1z2z3z4z' -> hexdec отбрасывает мусор и вернёт 0x1234 = 4660), если
+        // не проверять ctype_xdigit(). Этот кейс ловит удаление проверки, а не
+        // просто совпадает с ней случайно, как это было со str_repeat('z', 40).
+        self::assertNull(TokenOwner::fromAccessToken('deadbeefdeadbeefdeadbeef1z2z3z4zcafebabecafebabe'));
     }
 
     public function test_returns_null_for_zero_owner(): void
