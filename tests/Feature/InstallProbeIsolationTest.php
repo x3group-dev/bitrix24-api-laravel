@@ -12,17 +12,18 @@ use X3Group\Bitrix24\Tests\Support\MethodSource;
 use X3Group\Bitrix24\Tests\TestCase;
 
 /**
- * Раскладка шин по фазам установки: проба — изолированно, 'appEvents' — только после гейта.
+ * Раскладка диспетчеров событий по фазам установки: проба — изолированно,
+ * 'appEvents' — только после гейта.
  *
- * Пробный вызов идёт ДО проверки админства. На шине 'appEvents' взведён слушатель
- * «записать обновлённый токен в b24_apps», поэтому дать её пробному клиенту значит
- * пустить токен в b24_apps мимо AppTokenWriter — мимо и гейта, и записи владельца.
+ * Пробный вызов идёт ДО проверки админства. На диспетчере 'appEvents' зарегистрирован
+ * слушатель «записать обновлённый токен в b24_apps», поэтому дать его пробному клиенту
+ * значит пустить токен в b24_apps мимо AppTokenWriter — мимо и гейта, и записи владельца.
  *
  * Обратная сторона: после гейта рефреш обязан сохраняться, иначе десятки REST-вызовов
  * установщиков оставят в b24_apps отозванный refresh_token. Поэтому 'appEvents' не
- * убрана, а сдвинута за гейт.
+ * убран, а сдвинут за гейт.
  *
- * Поведенчески здесь проверены сами шины (кто пишет в b24_apps, а кто нет); то, что
+ * Поведенчески здесь проверены сами диспетчеры (кто пишет в b24_apps, а кто нет); то, что
  * InstallService раздаёт их по фазам именно так, удерживается структурно.
  */
 class InstallProbeIsolationTest extends TestCase
@@ -71,7 +72,7 @@ class InstallProbeIsolationTest extends TestCase
         self::assertSame(
             'renewed-by-app-bus',
             B24App::query()->where('member_id', self::MEMBER)->value('access_token'),
-            'шина appEvents перестала писать обновлённый токен — контроль недействителен',
+            'диспетчер appEvents перестал писать обновлённый токен — контроль недействителен',
         );
     }
 
@@ -101,7 +102,7 @@ class InstallProbeIsolationTest extends TestCase
      * Структурная страховка: поведенчески раскладку не воспроизвести — оба клиента
      * упираются в живой REST Битрикса. Проверяется ровно порядок:
      *
-     *   проба на изолированной шине -> «кто ставит?» -> гейт -> запись -> шина 'appEvents'
+     *   проба на изолированном диспетчере -> «кто ставит?» -> гейт -> запись -> диспетчер 'appEvents'
      *
      * Каждое звено осмысленно: проба после гейта бессмысленна, гейт после записи ничего
      * не спасает, а 'appEvents' до гейта — та самая дыра.
@@ -112,11 +113,11 @@ class InstallProbeIsolationTest extends TestCase
         $source = MethodSource::of(InstallService::class, $method);
 
         $steps = [
-            'проба на изолированной шине' => 'new InstallTokenProbe()',
+            'проба на изолированном диспетчере' => 'new InstallTokenProbe()',
             'вопрос «кто ставит?»' => 'getCurrentUserProfile()',
             'гейт' => 'throw InstallerCannotOwnPortalException::',
             'запись app-токена' => 'saveIfAllowed(',
-            "шина 'appEvents'" => "resolve('appEvents')",
+            "диспетчер 'appEvents'" => "resolve('appEvents')",
         ];
 
         $positions = [];
@@ -137,7 +138,7 @@ class InstallProbeIsolationTest extends TestCase
     }
 
     /**
-     * Пробный клиент не должен строиться на шине, которая пишет в БД. Отдельно от порядка:
+     * Пробный клиент не должен строиться на диспетчере, который пишет в БД. Отдельно от порядка:
      * порядок ловит «'appEvents' раньше гейта», а это — «'appEvents' ещё и у пробы».
      */
     #[DataProvider('installPaths')]
@@ -148,12 +149,12 @@ class InstallProbeIsolationTest extends TestCase
         self::assertSame(
             1,
             substr_count($source, "resolve('appEvents')"),
-            "в {$method} шина 'appEvents' используется дважды — вероятно, её отдали и пробе",
+            "в {$method} диспетчер 'appEvents' используется дважды — вероятно, его отдали и пробе",
         );
         self::assertStringContainsString(
             'eventDispatcher: $probe->eventDispatcher()',
             $source,
-            "в {$method} пробный клиент строится не на изолированной шине пробы",
+            "в {$method} пробный клиент строится не на изолированном диспетчере пробы",
         );
     }
 }

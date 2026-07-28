@@ -14,7 +14,7 @@ use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
 /**
  * Токен-события обязаны оставаться в границах своего ServiceBuilder.
  *
- * Пока адаптер вешал слушателей на глобальную шину Laravel, слушатель бинда
+ * Пока адаптер вешал слушателей на глобальный диспетчер Laravel, слушатель бинда
  * 'appEvents' («записать обновлённый токен в b24_apps») срабатывал на рефреш
  * ЛЮБОГО токена — и токен обычного сотрудника затирал app-токен портала, ломая
  * админ-методы (userfieldconfig.*).
@@ -71,7 +71,7 @@ class EventDispatcherAdapterTest extends TestCase
 
         (new EventDispatcherAdapter($global))->dispatch($this->renewedToken('some-token'));
 
-        self::assertSame([], $globalSaw, 'токен-событие утекло в глобальную шину');
+        self::assertSame([], $globalSaw, 'токен-событие утекло в глобальный диспетчер');
     }
 
     public function test_other_events_are_forwarded_to_the_global_bus(): void
@@ -87,7 +87,7 @@ class EventDispatcherAdapterTest extends TestCase
             new PortalDomainUrlChangedEvent('https://old.bitrix24.ru', 'https://new.bitrix24.ru'),
         );
 
-        self::assertSame(['new.bitrix24.ru'], $seen, 'общее событие не дошло до глобальной шины');
+        self::assertSame(['new.bitrix24.ru'], $seen, 'общее событие не дошло до глобального диспетчера');
     }
 
     public function test_dispatch_returns_the_same_event_instance(): void
