@@ -19,10 +19,15 @@
             "role": "Developer"
         }
     ],
-    "keywords": ["Laravel", "Bitrix", "Bitrix24"],
+    "keywords": [
+        "Laravel",
+        "Bitrix",
+        "Bitrix24"
+    ],
     "require": {
         "php": "^8.4",
         "illuminate/support": "^11.0|^12.0",
+        "illuminate/events": "^11.0|^12.0",
         "bitrix24/b24phpsdk": "^3.0",
         "monolog/monolog": "^3"
     },
