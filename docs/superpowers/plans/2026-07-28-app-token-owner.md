@@ -802,6 +802,12 @@ git commit -m "feat(tokens): propagateFromUser + сохранение владе
 
 ## Task 7: `InstallService` — владелец при установке и безопасный probe
 
+> **Уточнено пользователем 2026-07-28.** Владельцем портала записывается ТОЛЬКО
+> администратор. Если установку каким-то образом выполняет не-админ, `handleInstallPage()`
+> обязан прерваться ошибкой через проверку профиля, а не сохранять токен молча. Раньше
+> `shouldWrite(appExists: false, isAdmin: false)` пропускал первую установку кем угодно.
+
+
 **Files:**
 - Modify: `src/Application/Install/InstallService.php:33-90`
 - Test: `tests/Feature/AppTokenOwnershipTest.php`
