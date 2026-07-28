@@ -6,6 +6,7 @@ use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Models\B24App;
+use X3Group\Bitrix24\Tests\Support\Fakes\RecordingLogger;
 use X3Group\Bitrix24\Tests\TestCase;
 
 /**
@@ -24,9 +25,14 @@ class AppTokenOwnershipTest extends TestCase
 
     private const OTHER_USER = 162;
 
+    private RecordingLogger $logger;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->logger = new RecordingLogger();
+        $this->app->bind(AppTokenWriter::class, fn() => new AppTokenWriter($this->logger));
 
         B24App::query()->create([
             'member_id' => self::MEMBER,
@@ -153,6 +159,79 @@ class AppTokenOwnershipTest extends TestCase
             B24App::query()->where('member_id', self::MEMBER)->value('access_token'),
             'владелец из колонки не смог обновить токен портала',
         );
+    }
+
+    /**
+     * Отказ обязан быть виден в логе. Инцидент, ради которого всё это писалось, был
+     * невидим именно потому, что подмена app-токена нигде не отмечалась: о поломке
+     * узнавали от клиента. Молчаливое правило 2 повторило бы ту же ошибку — только
+     * теперь молчали бы и о законном рефреше, заблокированном протухшим user_id.
+     */
+    public function test_refresh_by_non_installer_is_recorded(): void
+    {
+        $this->writer()->propagateFromUser(self::MEMBER, self::OTHER_USER, $this->token('foreign'));
+
+        $notices = $this->logger->ofLevel('notice');
+
+        self::assertCount(1, $notices, 'блокировка чужого рефреша прошла молча');
+        self::assertSame(self::MEMBER, $notices[0]['context']['member_id'] ?? null);
+        self::assertSame(self::INSTALLER, $notices[0]['context']['installer_user_id'] ?? null, 'в логе нет владельца портала');
+        self::assertSame(self::OTHER_USER, $notices[0]['context']['user_id'] ?? null, 'в логе нет того, кто пытался обновить');
+    }
+
+    public function test_propagation_without_a_known_owner_is_recorded_distinguishably(): void
+    {
+        B24App::query()->where('member_id', self::MEMBER)->update(['user_id' => null]);
+
+        $this->writer()->propagateFromUser(self::MEMBER, self::INSTALLER, $this->token('fresh'));
+
+        $notices = $this->logger->ofLevel('notice');
+
+        self::assertCount(1, $notices, 'блокировка из-за неизвестного владельца прошла молча');
+        self::assertSame(self::MEMBER, $notices[0]['context']['member_id'] ?? null);
+        self::assertSame(self::INSTALLER, $notices[0]['context']['user_id'] ?? null);
+        self::assertArrayHasKey('installer_user_id', $notices[0]['context']);
+        self::assertNull($notices[0]['context']['installer_user_id'], 'неизвестный владелец должен быть виден как NULL');
+    }
+
+    /**
+     * Две причины отказа обязаны различаться в логе: «портал захватывает чужой» —
+     * это инцидент, а «владелец не установлен» — ожидаемое состояние части флота
+     * после бэкофилла. Сложить их в одно сообщение значит утопить первое во втором.
+     * Точные формулировки не фиксируем — важно, что они не совпадают.
+     */
+    public function test_the_two_denial_reasons_are_not_logged_as_the_same_event(): void
+    {
+        $this->writer()->propagateFromUser(self::MEMBER, self::OTHER_USER, $this->token('foreign'));
+
+        B24App::query()->where('member_id', self::MEMBER)->update(['user_id' => null]);
+        $this->writer()->propagateFromUser(self::MEMBER, self::INSTALLER, $this->token('fresh'));
+
+        $notices = $this->logger->ofLevel('notice');
+
+        self::assertCount(2, $notices);
+        self::assertNotSame(
+            $notices[0]['message'],
+            $notices[1]['message'],
+            'обе причины отказа пишутся одним и тем же сообщением — в логе их не разделить',
+        );
+    }
+
+    public function test_successful_propagation_is_not_reported_as_a_denial(): void
+    {
+        $this->writer()->propagateFromUser(self::MEMBER, self::INSTALLER, $this->token('fresh'));
+
+        self::assertSame([], $this->logger->ofLevel('notice'), 'успешный перенос токена записан как отказ');
+        self::assertCount(1, $this->logger->ofLevel('info'));
+    }
+
+    public function test_missing_portal_row_is_logged_as_nothing(): void
+    {
+        // Портала нет — это не отказ, а обычный no-op (например, приложение уже
+        // удалено). Шуметь тут значит приучить всех игнорировать этот notice.
+        $this->writer()->propagateFromUser('member-absent', self::INSTALLER, $this->token('fresh'));
+
+        self::assertSame([], $this->logger->records);
     }
 
     public function test_install_by_admin_records_the_owner(): void

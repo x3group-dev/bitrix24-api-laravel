@@ -57,6 +57,13 @@ class AppTokenWriter
      * Меняет только сам токен и сбрасывает счётчик ошибок. Владелец (user_id), домен,
      * application_token и oauth_server_url не трогаются — владелец меняется исключительно
      * при установке приложения.
+     *
+     * Отказ логируется notice'ом — так же, как отказ правила 1. Инцидент с подменой
+     * app-токена был невидим ровно потому, что запись никак не отмечалась, и о поломке
+     * узнавали от клиента. Причины отказа разделены: «обновляет не установщик» — это
+     * возможный захват портала (или протухший user_id, из-за которого блокируется
+     * законный рефреш), а «владелец не установлен» — ожидаемое состояние части флота
+     * после бэкофилла. В одном сообщении первое утонуло бы во втором.
      */
     public function propagateFromUser(string $memberId, int $userId, AuthToken $token): void
     {
@@ -69,6 +76,18 @@ class AppTokenWriter
         $installerUserId = $b24app->user_id === null ? null : (int) $b24app->user_id;
 
         if (!self::shouldPropagateFromUser($installerUserId, $userId)) {
+            $context = [
+                'member_id' => $memberId,
+                'installer_user_id' => $installerUserId,
+                'user_id' => $userId,
+            ];
+
+            if ($installerUserId === null) {
+                $this->logger->notice('b24 app token: propagation blocked (portal owner not established)', $context);
+            } else {
+                $this->logger->notice('b24 app token: propagation blocked (refresh by non-installer)', $context);
+            }
+
             return;
         }
 
