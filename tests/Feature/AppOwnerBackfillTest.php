@@ -31,8 +31,8 @@ class AppOwnerBackfillTest extends TestCase
 
     public function test_owner_that_is_not_admin_stays_null_and_is_listed_for_repair(): void
     {
-        // Ровно тот случай, ради которого всё затевалось: app-токен портала принадлежит
-        // рядовому сотруднику. Записать его владельцем значило бы узаконить подмену.
+        // Искомый случай: app-токен портала принадлежит рядовому сотруднику. Записать
+        // его владельцем значило бы узаконить подмену.
         $this->seedPortal('m-1', 'p1.bitrix24.ru', self::tokenFor(154));
         $this->seedUser('m-1', 'p1.bitrix24.ru', 154, isAdmin: false);
 
@@ -187,8 +187,7 @@ class AppOwnerBackfillTest extends TestCase
         self::assertSame(0, $second['filled']);
         self::assertSame(221, $this->ownerOf('m-ok'));
 
-        // …но и не «излечивает» отчёт: проблемные порталы никуда не делись,
-        // и молчание вместо них было бы враньём оператору.
+        // …но и не «излечивает» отчёт: проблемные порталы никуда не делись.
         self::assertSame(['not-admin.bitrix24.ru'], $second['notAdmin']);
         self::assertSame(['unknown.bitrix24.ru'], $second['unknownOwner']);
         self::assertSame(['broken.bitrix24.ru'], $second['unparseable']);

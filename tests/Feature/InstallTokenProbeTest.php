@@ -19,11 +19,9 @@ use X3Group\Bitrix24\Tests\TestCase;
  * обмена, так что записать в b24_apps исходный токен после рефреша значит положить туда
  * заведомо мёртвый refresh_token.
  *
- * Обновлённый токен здесь собирается через {@see RenewedAuthToken::initFromArray} — ровно
- * тем же методом, которым его собирает сам SDK на рефреше
- * (Core -> ApiClient::getNewAuthToken -> RenewedAuthToken::initFromArray). Руками такой
- * токен конструировать нельзя: легко выдумать сочетание полей, которого SDK не производит,
- * и защититься от несуществующей проблемы.
+ * Обновлённый токен здесь собирается через {@see RenewedAuthToken::initFromArray} — тем же
+ * методом, которым его собирает сам SDK на рефреше. Руками такой токен конструировать
+ * нельзя: легко выдумать сочетание полей, которого SDK не производит.
  */
 class InstallTokenProbeTest extends TestCase
 {
@@ -83,9 +81,8 @@ class InstallTokenProbeTest extends TestCase
 
     public function test_the_sdk_really_does_leave_expires_in_empty_on_a_refresh(): void
     {
-        // Основание для всей конвертации ниже. Если SDK когда-нибудь начнёт заполнять
-        // expiresIn, конвертация станет неверной — и узнать об этом надо здесь, а не по
-        // порталам, уехавшим в 2083 год.
+        // Основание для всей конвертации ниже: если SDK начнёт заполнять expiresIn,
+        // конвертация станет неверной, и узнать об этом надо здесь.
         $renewedToken = $this->renewed('renewed-on-probe')->getRenewedToken()->authToken;
 
         self::assertNull($renewedToken->expiresIn);
@@ -162,9 +159,8 @@ class InstallTokenProbeTest extends TestCase
      *
      * AppAuthDatabaseStorage::save() смотрит на expiresIn, а он у обновлённого токена
      * пуст, — значит storage безусловно считает expires сроком жизни и пишет
-     * now() + expires. Отдать туда обновлённый токен как есть — сложить два timestamp-а.
-     * Портал уезжает примерно в 2083 год, а RemoveUninstalledPortals читает эту колонку
-     * как абсолютный timestamp, решая, добит ли портал: такой портал не вычистится никогда.
+     * now() + expires, то есть складывает два timestamp-а. RemoveUninstalledPortals
+     * читает эту колонку как абсолютный timestamp, и такой портал не вычистится никогда.
      */
     public function test_storing_a_renewed_token_as_is_would_park_the_portal_in_the_far_future(): void
     {
