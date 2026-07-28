@@ -163,3 +163,13 @@ OAuth-обновлением токена** — именно оно даёт ч�
 
 Каждое удаление пишется в лог: `info` `removed dead portal` с `member_id`, `domain`, `reason` и
 `expires`.
+
+## Что искать в логах
+
+- `notice` `propagation blocked (refresh by non-owner)` — **единственный громкий сигнал**: токен
+  портала пытался обновить не его владелец. На здоровом флоте таких записей около нуля.
+- `debug` `propagation skipped (…)` — штатные пропуски: `portal owner not established`,
+  `placement user not identified`, `placement carries no refresh token`.
+- `info` — `b24 app token: saved` (установка) и `propagated from owner` (правило 2).
+
+Владелец лежит в контексте под ключом `owner_user_id`, пришедший с токеном — под `user_id`.

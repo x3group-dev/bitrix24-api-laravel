@@ -124,54 +124,13 @@ BX24.ready(async function () {
 `UserAuthDatabaseStorage::saveRenewedToken()`. Меняет только `access_token`, `refresh_token`,
 `expires`, `expires_in` и сбрасывает `error_update`.
 
-### Обновление с версии ниже 3.4.0
-
-**Ломающее изменение: установка не-администратором теперь падает.** Раньше первую установку портала
-мог выполнить кто угодно; теперь профиль проверяется на обоих путях, и если ставящий не админ (либо
-пришёл без `ID`), установка прерывается `InstallerCannotOwnPortalException` и не пишется ничего —
-ни токен, ни владелец, ни строка портала. Ловите его в install-контроллере, чтобы показать
-«поставить приложение может только администратор» (`member_id` и `user_id` — поля исключения).
-Бросается оно **до** `AppSetupRunner`, поэтому не-админский `ONAPPINSTALL` больше не прогоняет
-установщиков: переустановку теперь обязан делать администратор.
-
-**`migrate` обязан оказаться на сервере раньше нового кода или вместе с ним.** В окне, где новый код
-работает на старой схеме, `AppTokenWriter::saveIfAllowed()` падает с `no such column: user_id` уже
-**после** записи токена: портал получает токен, но остаётся без полей и обработчиков событий.
-
-Миграция только заводит колонку — заполнение и ремонт вынесены в команды (что именно они делают,
-опции и ограничения — [`docs/console-commands.md`](docs/console-commands.md)). Порядок выката:
-
-```bash
-php artisan migrate                                # только колонка user_id
-php artisan bitrix24:backfill-app-owner --dry-run  # что заполнится
-php artisan bitrix24:backfill-app-owner            # проставить владельцев
-php artisan bitrix24:reanchor-app-token --dry-run  # план ремонта оставшихся
-php artisan bitrix24:reanchor-app-token            # починить
-```
-
-### Что искать в логах
-
-- `notice` `propagation blocked (refresh by non-owner)` — **единственный громкий сигнал**: токен
-  портала пытался обновить не его владелец. На здоровом флоте таких записей около нуля.
-- `debug` `propagation skipped (…)` — штатные пропуски: `portal owner not established`,
-  `placement user not identified`, `placement carries no refresh token`.
-- `info` — `b24 app token: saved` (установка) и `propagated from owner` (правило 2).
-
-Владелец лежит в контексте под ключом `owner_user_id`, пришедший с токеном — под `user_id`.
+Ломающие изменения и порядок обновления — [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Консольные команды
 
-Пакет поставляет три artisan-команды:
-
-- `bitrix24:backfill-app-owner` — проставляет `b24_apps.user_id` (владельца app-токена) порталам,
-  установленным до появления колонки.
-- `bitrix24:reanchor-app-token` — чинит порталы, у которых app-токен принадлежит не
-  администратору: перепривязывает портал на админа вместе с токеном.
-- `bitrix24:remove-uninstalled` — вычищает токены порталов, которые уже не оживут: приложение с
-  них удалено либо давно кончилась подписка.
-
-Что каждая делает, когда её запускать, опции и ограничения —
-[`docs/console-commands.md`](docs/console-commands.md).
+Пакет поставляет три artisan-команды: `bitrix24:backfill-app-owner`, `bitrix24:reanchor-app-token`
+и `bitrix24:remove-uninstalled`. Что каждая делает, когда её запускать, опции, ограничения и
+порядок выката — [`docs/console-commands.md`](docs/console-commands.md).
 
 ## Структурированное логирование
 
