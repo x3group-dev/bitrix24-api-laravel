@@ -101,9 +101,10 @@ class AppTokenWriter
         $b24app->access_token = $token->accessToken;
         $b24app->refresh_token = $token->refreshToken;
         $b24app->expires = $token->expires;
-        // Замерено на этом наборе, обе подстановки прогнаны:
-        //   `?? 3600` -> `?? 999`                        — OK (94 tests, 263 assertions);
-        //   всё выражение -> `max(0, $token->expires - time())` — 1 failure.
+        // Обе подстановки прогнаны:
+        //   `?? 3600` -> `?? 999`                              — набор зелёный;
+        //   всё выражение -> `max(0, $token->expires - time())` — падает
+        //                    test_the_placement_token_leaves_both_rows_expiring_together.
         // То есть незакреплено ровно запасное ЗНАЧЕНИЕ: до него не доходит ни один тест.
         // Само выражение закреплено — токен размещения приходит с заполненным expiresIn,
         // и он обязан доехать до колонки как есть (test_the_placement_token_leaves_both_
