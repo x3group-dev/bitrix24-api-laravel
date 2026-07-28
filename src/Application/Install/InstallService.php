@@ -49,6 +49,13 @@ class InstallService
         $oauthServerUrl = OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT'));
         $memberId = $request->input('member_id');
 
+        // Домен берётся из query ровно так же, как его берёт ниже
+        // createServiceBuilderFromPlacementRequest, и ровно одним способом на весь метод.
+        // input() предпочёл бы тело POST — и если Битрикс когда-нибудь пришлёт DOMAIN там,
+        // в b24_apps.domain (постоянная идентичность портала) уехало бы одно значение, а
+        // оба клиента ходили бы в другое.
+        $domainUrl = trim((string)$request->query->get('DOMAIN'));
+
         $applicationProfile = new ApplicationProfile(
             clientId: config('bitrix24.client_id'),
             clientSecret: config('bitrix24.client_secret'),
@@ -57,7 +64,7 @@ class InstallService
 
         $logger = resolve('b24log', [
             'memberId' => $memberId,
-            'domain' => $request->input('DOMAIN'),
+            'domain' => $domainUrl,
         ]);
 
         $probe = new InstallTokenProbe();
@@ -94,20 +101,18 @@ class InstallService
 
         $localAppAuth = new LocalAppAuth(
             authToken: $probe->tokenForStorage($requestToken),
-            domainUrl: $request->input('DOMAIN'),
+            domainUrl: $domainUrl,
             applicationToken: null,
             oauthServerUrl: $oauthServerUrl,
         );
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        // Домен берётся ровно так же, как его берёт createServiceBuilderFromPlacementRequest
-        // выше: рабочий клиент обязан смотреть в тот же портал, что и проба.
         $b24 = (new ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),
-                bitrix24DomainUrl: trim((string)$request->query->get('DOMAIN')),
+                bitrix24DomainUrl: $domainUrl,
                 oauthServerUrl: $oauthServerUrl,
             );
 

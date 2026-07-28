@@ -2,8 +2,6 @@
 
 namespace X3Group\Bitrix24\Tests\Feature;
 
-use Bitrix24\SDK\Application\ApplicationStatus;
-use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Response\DTO\RenewedAuthToken;
 use Bitrix24\SDK\Events\AuthTokenRenewedEvent;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -51,21 +49,19 @@ class InstallProbeIsolationTest extends TestCase
         ]);
     }
 
+    /** Собирается так же, как это делает сам SDK на рефреше: expiresIn остаётся пуст. */
     private function renewed(string $accessToken): AuthTokenRenewedEvent
     {
-        return new AuthTokenRenewedEvent(new RenewedAuthToken(
-            authToken: new AuthToken(
-                accessToken: $accessToken,
-                refreshToken: $accessToken . '-refresh',
-                expires: time() + 3600,
-                expiresIn: 3600,
-            ),
-            memberId: self::MEMBER,
-            clientEndpoint: 'https://portal.bitrix24.ru/rest/',
-            serverEndpoint: 'https://oauth.bitrix24.tech/rest/',
-            applicationStatus: ApplicationStatus::subscription(),
-            domain: 'portal.bitrix24.ru',
-        ));
+        return new AuthTokenRenewedEvent(RenewedAuthToken::initFromArray([
+            'access_token' => $accessToken,
+            'refresh_token' => $accessToken . '-refresh',
+            'expires' => time() + 3600,
+            'member_id' => self::MEMBER,
+            'client_endpoint' => 'https://portal.bitrix24.ru/rest/',
+            'server_endpoint' => 'https://oauth.bitrix24.tech/rest/',
+            'status' => 'S',
+            'domain' => 'portal.bitrix24.ru',
+        ]));
     }
 
     /**

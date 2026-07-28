@@ -58,13 +58,28 @@ final class InstallTokenProbe
     /**
      * Токен для записи в b24_apps, приведённый к «placement-конвенции».
      *
-     * Осторожно, это не формальность. У токена из запроса установки expires — это СРОК
-     * ЖИЗНИ в секундах, а expiresIn не заполнен; у обновлённого наоборот: expires —
-     * абсолютный timestamp, expiresIn — срок жизни.
+     * Осторожно, это не формальность: поле expires у двух токенов означает РАЗНОЕ, хотя
+     * называется одинаково и в обоих случаях приходит без expiresIn.
+     *
+     *   - токен из запроса установки: expires — СРОК ЖИЗНИ в секундах (AUTH_EXPIRES),
+     *     см. AuthToken::initFromPlacementRequest — три аргумента, expiresIn остаётся null;
+     *   - обновлённый токен: expires — АБСОЛЮТНЫЙ timestamp, потому что рефреш собирается
+     *     через RenewedAuthToken::initFromArray -> AuthToken::initFromArray, тоже три
+     *     аргумента и тоже null в expiresIn. Во всём SDK expiresIn заполняет ровно один
+     *     метод — initFromEventRequest для одноразовых токенов событий, к рефрешу
+     *     отношения не имеющий.
+     *
      * {@see \X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage::save}
-     * различает эти случаи по expiresIn и для непустого expiresIn кладёт в колонку expires
-     * срок жизни, а в expires_in — timestamp, то есть меняет колонки местами. Отдать туда
-     * обновлённый токен как есть значит записать портал с перепутанным сроком годности.
+     * различает конвенции по expiresIn, а раз он null в обоих случаях, то безусловно
+     * считает expires сроком жизни и пишет в колонку now() + expires. Отдать туда
+     * обновлённый токен как есть — значит сложить два timestamp-а и припарковать портал
+     * где-то в 2083 году. Тихо это не останется: {@see \X3Group\Bitrix24\Console\Commands\RemoveUninstalledPortals}
+     * читает b24_apps.expires как абсолютный timestamp, решая, добит ли портал, — такой
+     * портал не вычистится никогда.
+     *
+     * Поэтому срок жизни считается из того, что в токене действительно есть: expiresIn,
+     * если он вдруг заполнен, иначе остаток от абсолютного expires. Константу сюда
+     * подставлять нельзя — «ровно 3600» это свойство сегодняшнего Битрикса, а не токена.
      *
      * Когда рефреша не было, метод возвращает исходный токен как есть — то есть на обычной
      * установке поведение не меняется ни на байт.
@@ -78,7 +93,7 @@ final class InstallTokenProbe
         return new AuthToken(
             accessToken: $this->renewedToken->accessToken,
             refreshToken: $this->renewedToken->refreshToken,
-            expires: $this->renewedToken->expiresIn ?? 3600,
+            expires: $this->renewedToken->expiresIn ?? max(0, $this->renewedToken->expires - time()),
         );
     }
 }
