@@ -23,17 +23,30 @@ return new class extends Migration
 
         $summary = (new AppOwnerBackfill())->run();
 
+        $unparseable = count($summary['unparseable']);
+        $notAdmin = count($summary['notAdmin']);
+
         echo sprintf(
-            'b24_apps.user_id: заполнено %d, осталось NULL %d%s',
+            'b24_apps.user_id: заполнено %d, осталось NULL %d (владелец не админ %d, токен не разобран %d)%s',
             $summary['filled'],
-            count($summary['unresolved']),
+            $unparseable + $notAdmin,
+            $notAdmin,
+            $unparseable,
             PHP_EOL
         );
 
-        if ($summary['unresolved'] !== []) {
+        if ($notAdmin > 0) {
             echo '  порталы на ремонт (bitrix24:reanchor-app-token): '
-                . implode(', ', array_slice($summary['unresolved'], 0, 50))
-                . (count($summary['unresolved']) > 50 ? ' …' : '')
+                . implode(', ', array_slice($summary['notAdmin'], 0, 50))
+                . ($notAdmin > 50 ? ' …' : '')
+                . PHP_EOL;
+        }
+
+        if ($unparseable > 0) {
+            echo "  ВНИМАНИЕ: владелец не читается из access_token, таких порталов: $unparseable."
+                . ' Единичные случаи нормальны, массовые означают ошибку интеграции'
+                . ' (не та колонка, сменился формат токена, значения зашифрованы) —'
+                . ' разберитесь до того, как чинить порталы поштучно.'
                 . PHP_EOL;
         }
     }
