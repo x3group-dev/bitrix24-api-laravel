@@ -475,6 +475,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
         // Registering package commands.
         $this->commands([
             \X3Group\Bitrix24\Console\Commands\RemoveUninstalledPortals::class,
+            \X3Group\Bitrix24\Console\Commands\BackfillAppOwnerCommand::class,
             \X3Group\Bitrix24\Console\Commands\ReanchorAppTokenCommand::class,
         ]);
     }
