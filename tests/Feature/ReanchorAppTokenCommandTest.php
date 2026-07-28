@@ -2,6 +2,7 @@
 
 namespace X3Group\Bitrix24\Tests\Feature;
 
+use Illuminate\Support\Facades\Artisan;
 use X3Group\Bitrix24\Console\Commands\ReanchorAppTokenCommand;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
@@ -29,12 +30,6 @@ use X3Group\Bitrix24\Tests\TestCase;
  */
 class ReanchorAppTokenCommandTest extends TestCase
 {
-    /*
-     * Про expectsOutputToContain: ожидания разбирает Mockery в порядке регистрации, и одна
-     * написанная строка гасит РОВНО ОДНО ожидание — первое подошедшее. Два ожидания на одну
-     * и ту же строку (или ожидание-подстрока другого) молча не сойдутся, поэтому ниже они
-     * подобраны так, чтобы каждое попадало в свою строку вывода.
-     */
 
     /**
      * Значения «сломанного» портала: их же ожидаем увидеть после dry-run и после отката.
@@ -70,7 +65,8 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-null');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--dry-run' => true])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--dry-run' => true]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame($before, $this->snapshot('m-null'), 'dry-run изменил строку портала');
         self::assertSame(0, $command->verifyCalls, 'dry-run сходил в Битрикс: прогон «посмотреть» бьёт по проду');
@@ -87,7 +83,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->user('m-null', 20, isAdmin: true, expires: time() + 9000);   // свежее
         $this->user('m-null', 30, isAdmin: false, expires: time() + 99999); // не админ, но свежее всех
 
-        $this->artisan('bitrix24:reanchor-app-token')->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         $app = B24App::query()->where('member_id', 'm-null')->first();
 
@@ -127,7 +124,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-null', null);
         $this->user('m-null', 10, isAdmin: true, expires: $adminExpires);
 
-        $this->artisan('bitrix24:reanchor-app-token')->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         $app = B24App::query()->where('member_id', 'm-null')->first();
 
@@ -153,7 +151,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->user('m-demoted', 50, isAdmin: false, expires: time() + 9999);
         $this->user('m-demoted', 60, isAdmin: true, expires: time() + 3600);
 
-        $this->artisan('bitrix24:reanchor-app-token')->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         $app = B24App::query()->where('member_id', 'm-demoted')->first();
 
@@ -168,9 +167,9 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-ok');
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('не найдено')
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('не найдено', $out);
 
         self::assertSame($before, $this->snapshot('m-ok'), 'здоровый портал перепривязали заново');
     }
@@ -205,7 +204,8 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $foreignBefore = $this->snapshot('m-foreign');
 
-        $this->artisan('bitrix24:reanchor-app-token')->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         $app = B24App::query()->where('member_id', 'm-target')->first();
 
@@ -236,10 +236,11 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-lonely');
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('нужна переустановка')     // строка таблицы
-            ->expectsOutputToContain('на переустановку: 1')      // итоговая строка
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('нужна переустановка', $out);
+        self::assertStringContainsString('на переустановку: 1', $out);
 
         self::assertSame($before, $this->snapshot('m-lonely'), 'портал без своих админов всё-таки тронули');
     }
@@ -271,10 +272,10 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-api');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--member' => 'm-api'])
-            ->expectsOutputToContain('без данных о правах владельца: 1')
-            ->doesntExpectOutputToContain('нужна переустановка')
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--member' => 'm-api']);
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('без данных о правах владельца: 1', $out);
+        self::assertStringNotContainsString('нужна переустановка', $out);
 
         self::assertSame($before, $this->snapshot('m-api'), 'портал без свидетельств против владельца перепривязали');
     }
@@ -304,10 +305,10 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = [$this->snapshot('m-api-null'), $this->snapshot('m-api-owned')];
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('без данных о правах владельца: 2')
-            ->doesntExpectOutputToContain('нужна переустановка')
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('без данных о правах владельца: 2', $out);
+        self::assertStringNotContainsString('нужна переустановка', $out);
 
         self::assertSame(
             $before,
@@ -326,7 +327,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->user('m-null', 10, isAdmin: true, expires: time() + 100);
         $this->user('m-null', 20, isAdmin: true, expires: time() + 9000); // выбрали бы его
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--user' => 10])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--user' => 10]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         $app = B24App::query()->where('member_id', 'm-null')->first();
 
@@ -354,9 +356,9 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-null');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--user' => 30])
-            ->expectsOutputToContain('не администратор')
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--user' => 30]);
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('не администратор', $out);
 
         self::assertSame($before, $this->snapshot('m-null'), 'не-админа записали владельцем портала');
     }
@@ -370,7 +372,8 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-null');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--user' => 999])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--user' => 999]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame($before, $this->snapshot('m-null'), '--user с несуществующим пользователем что-то записал');
     }
@@ -392,11 +395,54 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-stale');
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('нет админа со свежим токеном')
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('нет админа со свежим токеном', $out);
+
+        // Итог обязан сходиться, и портал обязан быть ВНЕ корзины ремонта: попав в неё, он
+        // не вышел бы оттуда никогда и съедал бы бюджет каждого прогона.
+        self::assertStringContainsString(
+            'На ремонт: 0 (перепривязано: 0, откатов: 0, откат отменён: 0, отказов: 0,'
+            . ' без кандидата: 0, план: 0), ждут входа админа: 1',
+            $out,
+        );
+
+        // Переустановка тут ни при чём: достаточно, чтобы админ открыл приложение, и
+        // B24AppUserMiddleware обновит его строку в b24_users.
+        self::assertStringNotContainsString('нужна переустановка', $out);
 
         self::assertSame($before, $this->snapshot('m-stale'), 'портал перепривязали на заведомо мёртвый токен');
+    }
+
+    /**
+     * Портал, у которого все админы протухли, не должен блокировать очередь.
+     *
+     * Он не чинится ни сегодня, ни завтра, не исчезает из БД и стоит первым по id — то
+     * есть при попадании в корзину ремонта забирал бы --limit себе на каждом прогоне, а
+     * починяемый портал за ним не чинился бы никогда. Ровно эта форма старвейшна уже была
+     * один раз (тогда её создавали строки «нет админов вообще»), поэтому проверяется не
+     * «нашёлся ли кандидат», а то, что бюджет дошёл до починяемого портала.
+     */
+    public function test_a_stale_only_portal_does_not_block_the_queue(): void
+    {
+        $this->useCommand(verdict: true);
+
+        // Протухший и ПЕРВЫЙ по id.
+        $this->portal('m-stale', null);
+        $this->user('m-stale', 10, isAdmin: true, expires: time() - 40 * 86400);
+
+        $this->portal('m-fix', null);
+        $this->user('m-fix', 50, isAdmin: true, expires: time() + 3600);
+
+        [$exit, $out] = $this->runCommand(['--limit' => 1]);
+        self::assertSame(0, $exit, 'код возврата прогона');
+
+        self::assertSame(
+            50,
+            B24App::query()->where('member_id', 'm-fix')->value('user_id'),
+            'бюджет прогона забрал портал с протухшими админами: повторные запуски не сдвинутся с места',
+        );
     }
 
     public function test_max_age_zero_disables_the_freshness_floor(): void
@@ -406,7 +452,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-stale', null);
         $this->user('m-stale', 10, isAdmin: true, expires: time() - 40 * 86400);
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--max-age' => 0])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--max-age' => 0]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame(10, B24App::query()->where('member_id', 'm-stale')->value('user_id'));
     }
@@ -428,9 +475,9 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-null');
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('перепривязано: 0, откатов: 1')
-            ->assertExitCode(1);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(1, $exit, 'код возврата прогона');
+        self::assertStringContainsString('перепривязано: 0, откатов: 1', $out);
 
         self::assertSame($before, $this->snapshot('m-null'), 'после отката строка портала отличается от исходной');
     }
@@ -444,9 +491,9 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-null');
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('откат')
-            ->assertExitCode(1);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(1, $exit, 'код возврата прогона');
+        self::assertStringContainsString('откат', $out);
 
         self::assertSame($before, $this->snapshot('m-null'), 'исключение проверки оставило портал недочиненным');
     }
@@ -471,15 +518,32 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-null', null);
         $this->user('m-null', 10, isAdmin: true, expires: time() + 3600);
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('откат отменён')
-            ->assertExitCode(1);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(1, $exit, 'код возврата прогона');
+        self::assertStringContainsString('откат отменён', $out);
+
+        $app = B24App::query()->where('member_id', 'm-null')->first();
 
         self::assertSame(
             'renewed-mid-flight',
-            B24App::query()->where('member_id', 'm-null')->value('access_token'),
+            $app->access_token,
             'откат затёр настоящий свежий токен значением, которое Битрикс уже отозвал',
         );
+
+        // А вот владелец обязан вернуться. Проверка только что сказала, что этот человек
+        // не админ; оставить его в user_id значит закрепить за порталом подтверждённого
+        // не-админа — правило 2 начнёт переносить его токен в b24_apps на каждом заходе,
+        // то есть исходная авария станет стабильной, причём установленной инструментом
+        // ремонта. Здесь прежний владелец NULL, то есть портал уехал бы из fail-closed в
+        // «стабильно ломается».
+        self::assertNull(
+            $app->user_id,
+            'портал остался закреплён за подтверждённым не-админом: ремонт застабилизировал исходную аварию',
+        );
+
+        // error_update намеренно НЕ восстанавливаем: обнулить его мог законный перенос
+        // токена, а само обнуление безвредно.
+        self::assertSame(0, (int) $app->error_update);
     }
 
     /**
@@ -493,9 +557,9 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-null', null);
         $this->user('m-null', 10, isAdmin: true, expires: time() + 3600);
 
-        $this->artisan('bitrix24:reanchor-app-token')
-            ->expectsOutputToContain('перепривязано: 1, откатов: 0')
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(0, $exit, 'код возврата прогона');
+        self::assertStringContainsString('перепривязано: 1, откатов: 0', $out);
 
         $app = B24App::query()->where('member_id', 'm-null')->first();
 
@@ -516,7 +580,8 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $untouched = $this->snapshot('m-b');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--member' => 'm-a'])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--member' => 'm-a']);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame(10, B24App::query()->where('member_id', 'm-a')->value('user_id'));
         self::assertSame($untouched, $this->snapshot('m-b'), '--member не ограничил прогон одним порталом');
@@ -533,7 +598,8 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $untouched = $this->snapshot('m-b');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--limit' => 1])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--limit' => 1]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame(10, B24App::query()->where('member_id', 'm-a')->value('user_id'));
         self::assertSame($untouched, $this->snapshot('m-b'), '--limit не ограничил число обработанных порталов');
@@ -558,7 +624,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-fix', null);
         $this->user('m-fix', 50, isAdmin: true, expires: time() + 3600);
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--limit' => 1])->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--limit' => 1]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame(
             50,
@@ -579,7 +646,8 @@ class ReanchorAppTokenCommandTest extends TestCase
 
         $before = $this->snapshot('m-null');
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--skip-verify' => true])->assertExitCode(1);
+        [$exit, $out] = $this->runCommand(['--skip-verify' => true]);
+        self::assertSame(1, $exit, 'код возврата прогона');
 
         self::assertSame($before, $this->snapshot('m-null'), 'прогон без живой проверки на весь флот всё-таки прошёл');
     }
@@ -589,8 +657,8 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-null', null);
         $this->user('m-null', 10, isAdmin: true, expires: time() + 3600);
 
-        $this->artisan('bitrix24:reanchor-app-token', ['--member' => 'm-null', '--skip-verify' => true])
-            ->assertExitCode(0);
+        [$exit, $out] = $this->runCommand(['--member' => 'm-null', '--skip-verify' => true]);
+        self::assertSame(0, $exit, 'код возврата прогона');
 
         self::assertSame('m-null/user-10-access', B24App::query()->where('member_id', 'm-null')->value('access_token'));
     }
@@ -606,10 +674,30 @@ class ReanchorAppTokenCommandTest extends TestCase
         $this->portal('m-null', null);
         $this->user('m-null', 10, isAdmin: true, expires: time() + 3600);
 
-        $this->artisan('bitrix24:reanchor-app-token')->assertExitCode(1);
+        [$exit, $out] = $this->runCommand();
+        self::assertSame(1, $exit, 'код возврата прогона');
     }
 
     // --- инфраструктура теста ---
+
+    /**
+     * Прогон команды с честным захватом вывода.
+     *
+     * Намеренно не через $this->artisan(): его expectsOutputToContain разбирает Mockery в
+     * порядке регистрации, и одна написанная строка гасит РОВНО ОДНО ожидание — первое
+     * подошедшее. Из-за этого doesntExpectOutputToContain молча не срабатывает, если ту же
+     * строку уже забрало положительное ожидание: мутант, переименовавший «ждут входа
+     * админа» обратно в «нужна переустановка», ровно так и выжил, хотя запрет на это слово
+     * в тесте стоял. Здесь вывод берётся целиком и проверяется обычными ассертами.
+     *
+     * @return array{int, string}
+     */
+    private function runCommand(array $parameters = []): array
+    {
+        $exit = Artisan::call('bitrix24:reanchor-app-token', $parameters);
+
+        return [$exit, Artisan::output()];
+    }
 
     /**
      * Подменяет команду в контейнере: живой вызов user.admin из теста недоступен, а

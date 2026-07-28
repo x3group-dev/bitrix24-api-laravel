@@ -58,7 +58,7 @@ class ReanchorAppTokenCommand extends Command
     protected $signature = 'bitrix24:reanchor-app-token
         {--dry-run : Только показать план, не записывая ничего}
         {--member= : Обработать только этот member_id}
-        {--user= : Взять токен именно этого пользователя портала (обязан быть администратором)}
+        {--user= : Взять токен именно этого пользователя портала (обязан быть администратором); действует только на порталы из корзины ремонта}
         {--limit=200 : Максимум порталов за прогон; 0 — без ограничения}
         {--max-age=30 : Не брать в новые владельцы админа, чей токен не обновлялся дольше стольких дней; 0 — без ограничения}
         {--skip-verify : Не проверять результат живым вызовом user.admin; только вместе с --member}';
@@ -85,11 +85,12 @@ class ReanchorAppTokenCommand extends Command
             return self::FAILURE;
         }
 
-        $broken = $this->applyScope($this->needingRepair(), $member, $limit)->get();
+        $broken = $this->applyScope($this->needingRepair($maxAgeDays), $member, $limit)->get();
         $stranded = $this->applyScope($this->needingReinstall(), $member, $limit)->get();
+        $waiting = $this->applyScope($this->waitingForAdminLogin($maxAgeDays), $member, $limit)->get();
         $unknown = $this->applyScope($this->withoutEvidence(), $member, 0)->count();
 
-        if ($broken->isEmpty() && $stranded->isEmpty() && $unknown === 0) {
+        if ($broken->isEmpty() && $stranded->isEmpty() && $waiting->isEmpty() && $unknown === 0) {
             $this->info('Порталов, требующих перепривязки, не найдено.');
 
             return self::SUCCESS;
@@ -100,6 +101,8 @@ class ReanchorAppTokenCommand extends Command
         $rolledBack = 0;
         $rollbackSkipped = 0;
         $refused = 0;
+        $withoutCandidate = 0;
+        $planned = 0;
 
         /** @var B24App $b24app */
         foreach ($stranded as $b24app) {
@@ -107,13 +110,23 @@ class ReanchorAppTokenCommand extends Command
         }
 
         /** @var B24App $b24app */
+        foreach ($waiting as $b24app) {
+            $rows[] = [$b24app->domain, $this->ownerLabel($b24app), '—',
+                "нет админа со свежим токеном (--max-age={$maxAgeDays}): пусть админ зайдёт в приложение, следующий прогон починит"];
+        }
+
+        /** @var B24App $b24app */
         foreach ($broken as $b24app) {
             $previousOwner = $this->ownerLabel($b24app);
-            $admin = $this->pickAdmin($b24app, $forcedUserId, $maxAgeDays);
+            $admin = $this->pickAdmin($b24app, $forcedUserId);
 
             if ($admin === null) {
+                // Автоматический выбор попасть сюда не может: отбор уже потребовал, чтобы
+                // у портала был админ со свежим токеном. Остаётся --user мимо цели и
+                // теоретическая гонка между отбором и выбором.
+                $withoutCandidate++;
                 $rows[] = [$b24app->domain, $previousOwner, '—', $forcedUserId === null
-                    ? "нет админа со свежим токеном (--max-age={$maxAgeDays}): нужна переустановка"
+                    ? 'админ со свежим токеном исчез между отбором и выбором'
                     : "пользователя {$forcedUserId} нет в b24_users этого портала"];
 
                 continue;
@@ -135,6 +148,7 @@ class ReanchorAppTokenCommand extends Command
             }
 
             if ($dryRun) {
+                $planned++;
                 $rows[] = [$b24app->domain, $previousOwner, (string) $admin->user_id, 'dry-run: перепривязал бы'];
 
                 continue;
@@ -155,14 +169,21 @@ class ReanchorAppTokenCommand extends Command
             $this->table(['портал', 'было', 'стало', 'результат'], $rows);
         }
 
+        // Слагаемые в скобках дают ровно размер корзины ремонта: портал, вошедший в неё и
+        // не попавший ни под один исход, — это дыра в отчёте, по которой оператор решит,
+        // что стало лучше.
         $this->info(sprintf(
-            '%sНа ремонт: %d, перепривязано: %d, откатов: %d, откат отменён: %d, отказов: %d, на переустановку: %d',
+            '%sНа ремонт: %d (перепривязано: %d, откатов: %d, откат отменён: %d, отказов: %d,'
+                . ' без кандидата: %d, план: %d), ждут входа админа: %d, на переустановку: %d',
             $dryRun ? '[DRY-RUN] ' : '',
             $broken->count(),
             $repaired,
             $rolledBack,
             $rollbackSkipped,
             $refused,
+            $withoutCandidate,
+            $planned,
+            $waiting->count(),
             $stranded->count(),
         ));
 
@@ -192,16 +213,41 @@ class ReanchorAppTokenCommand extends Command
      *
      * @return Builder<B24App>
      */
-    private function needingRepair(): Builder
+    private function needingRepair(int $maxAgeDays): Builder
     {
         return B24App::query()
             ->orderBy('id')
-            ->where(function (Builder $builder): void {
-                $builder
-                    ->whereNull('user_id')
-                    ->orWhereExists(fn(QueryBuilder $sub) => $this->ownerRow($sub, isAdmin: false));
-            })
-            ->whereExists(fn(QueryBuilder $sub) => $this->anyAdmin($sub));
+            ->where(fn(Builder $builder) => $this->ownerIsWrong($builder))
+            ->whereExists(fn(QueryBuilder $sub) => $this->anyAdmin($sub, $maxAgeDays));
+    }
+
+    /**
+     * ЖДЁТ ВХОДА АДМИНА: перепривязать есть на кого, но все админы портала протухли.
+     *
+     * Это НЕ «нужна переустановка»: звать клиента переустанавливать приложение здесь не
+     * за что — достаточно, чтобы любой администратор открыл приложение, и
+     * B24AppUserMiddleware обновит его строку в b24_users. Следующий прогон такой портал
+     * починит сам.
+     *
+     * При --max-age=0 корзина пуста по построению: «свежие» и «любые» админы совпадают.
+     *
+     * @return Builder<B24App>
+     */
+    private function waitingForAdminLogin(int $maxAgeDays): Builder
+    {
+        return B24App::query()
+            ->orderBy('id')
+            ->where(fn(Builder $builder) => $this->ownerIsWrong($builder))
+            ->whereExists(fn(QueryBuilder $sub) => $this->anyAdmin($sub))
+            ->whereNotExists(fn(QueryBuilder $sub) => $this->anyAdmin($sub, $maxAgeDays));
+    }
+
+    /** Владелец либо не задан, либо про него ТОЧНО известно, что он не админ. */
+    private function ownerIsWrong(Builder $builder): void
+    {
+        $builder
+            ->whereNull('user_id')
+            ->orWhereExists(fn(QueryBuilder $sub) => $this->ownerRow($sub, isAdmin: false));
     }
 
     /**
@@ -257,13 +303,25 @@ class ReanchorAppTokenCommand extends Command
         }
     }
 
-    /** Хоть один администратор ЭТОГО портала. */
-    private function anyAdmin(QueryBuilder $sub): void
+    /**
+     * Хоть один администратор ЭТОГО портала; $maxAgeDays > 0 — только со свежим токеном.
+     *
+     * Порог обязан жить ЗДЕСЬ, в отборе, а не в триаже после него. Портал, у которого все
+     * админы протухли, не чинится ни сегодня, ни завтра, а порядок стабилен по id: попади
+     * он в набор ремонта — и на каждом прогоне бюджет уходил бы ему, а починяемые порталы
+     * за ним не чинились бы никогда. Ровно этой формы старвейшн уже стоил одного раунда
+     * ревью, когда так же снаружи стояло условие «есть админ».
+     */
+    private function anyAdmin(QueryBuilder $sub, int $maxAgeDays = 0): void
     {
         $sub->select(DB::raw(1))
             ->from('b24_users')
             ->whereColumn('b24_users.member_id', 'b24_apps.member_id')
             ->where('b24_users.is_admin', true);
+
+        if ($maxAgeDays > 0) {
+            $sub->where('b24_users.expires', '>=', time() - $maxAgeDays * 86400);
+        }
     }
 
     /**
@@ -289,20 +347,26 @@ class ReanchorAppTokenCommand extends Command
     }
 
     /**
-     * Новый владелец: самый свежий администратор ЭТОГО портала, чей токен не протух
-     * окончательно.
+     * Новый владелец: самый свежий администратор ЭТОГО портала.
      *
-     * Порог по свежести не косметика. У сломанного портала токен не-админа обычно живой, а
-     * админ, найденный ему на замену, мог не заходить в приложение месяцами: refresh-токен
-     * Битрикса столько не живёт, и перепривязка сделала бы портал хуже, чем он был. Порог
-     * считается по b24_users.expires — абсолютной метке, которую пишет B24AppUserMiddleware.
+     * Порога свежести здесь СОЗНАТЕЛЬНО нет, хотя сам порог существует и важен: у
+     * сломанного портала токен не-админа обычно живой, а найденный на замену админ мог не
+     * заходить в приложение месяцами, и перепривязка на него сделала бы портал хуже, чем
+     * он был. Но применяется порог один раз — в отборе кандидатов ({@see self::anyAdmin()}),
+     * и повторять его тут значило бы завести ветку, в которую невозможно попасть: набор
+     * ремонта уже гарантирует, что хотя бы один админ свежее порога, а orderByDesc отдаёт
+     * самого свежего — то есть заведомо не хуже него. Такая ветка не защищает, а только
+     * создаёт видимость защиты: изменить её можно как угодно, ни один тест не заметит.
+     *
+     * Отсюда же и обязанность сортировки: свежесть результата держится ровно на
+     * orderByDesc('expires').
      *
      * Под --user строка берётся БЕЗ фильтров: оператор назвал человека явно, отказ обязан
      * приходить от гейта в handle() (иначе «не администратор» и «нет такой строки» слились
      * бы в один невнятный ответ, а сам гейт остался бы без сценария, который его
      * проверяет), а мёртвый токен поймает живая проверка.
      */
-    private function pickAdmin(B24App $b24app, ?int $forcedUserId, int $maxAgeDays): ?B24User
+    private function pickAdmin(B24App $b24app, ?int $forcedUserId): ?B24User
     {
         $query = B24User::query()->where('member_id', $b24app->member_id);
 
@@ -310,19 +374,17 @@ class ReanchorAppTokenCommand extends Command
             return $query->where('user_id', $forcedUserId)->first();
         }
 
-        $query->where('is_admin', true);
-
-        if ($maxAgeDays > 0) {
-            $query->where('expires', '>=', time() - $maxAgeDays * 86400);
-        }
-
-        return $query->orderByDesc('expires')->first();
+        return $query->where('is_admin', true)->orderByDesc('expires')->first();
     }
 
     /**
      * Записывает токен администратора вместе с владельцем и проверяет результат живым
      * вызовом. Неудача возвращает строку РОВНО в прежний вид: полуоткат оставил бы портал
      * в состоянии, которого не было ни до ремонта, ни после.
+     *
+     * Ровно одно исключение — когда откатывать уже нечего, потому что строку переписали
+     * под нами. Там выбор стоит не между «чистым состоянием» и «половинчатым», а между
+     * двумя половинчатыми, и подробности — на самой ветке ниже.
      *
      * Токен переносится из b24_users как есть, включая expires. Это не небрежность:
      * b24_users.expires и b24_apps.expires — обе АБСОЛЮТНЫЕ метки времени (b24_users пишет
@@ -390,14 +452,33 @@ class ReanchorAppTokenCommand extends Command
             ->update($backup);
 
         if ($restored === 0) {
-            logger()->warning('reanchor rollback skipped: row changed under us', [
+            // Токен оставляем чужой (свежий), а ВЛАДЕЛЬЦА возвращаем — и это не
+            // непоследовательность, а единственный исход, который не делает портал хуже,
+            // чем он был.
+            //
+            // Проверка только что сказала, что выбранный админ на самом деле не админ.
+            // Оставить его в user_id значит закрепить за порталом подтверждённого
+            // не-админа: правило 2 начнёт на каждом заходе этого сотрудника переносить
+            // его токен в b24_apps — то есть ровно ту исходную аварию, только теперь
+            // застабилизированную инструментом ремонта. Особенно скверно это там, где
+            // владельца до нас не было вовсе: NULL — это fail-closed, из него портал
+            // переехал бы в состояние «стабильно ломается».
+            //
+            // Возврат безопасен именно для user_id и только для него: конкурирующие
+            // писатели этой колонки не трогают — AppAuthDatabaseStorage::saveRenewedToken
+            // пишет четыре токеновых колонки, AppTokenWriter::propagateFromUser их же плюс
+            // error_update. Поэтому error_update здесь НЕ восстанавливаем: обнулить его
+            // мог законный перенос, а само обнуление безвредно.
+            B24App::query()->whereKey($b24app->getKey())->update(['user_id' => $backup['user_id']]);
+
+            logger()->warning('reanchor rollback skipped: row changed under us, ownership restored', [
                 'member_id' => $b24app->member_id,
                 'domain' => $b24app->domain,
                 'user_id' => $admin->user_id,
                 'reason' => $reason,
             ]);
 
-            return [ReanchorOutcome::RollbackSkipped, 'откат отменён (строку переписали): ' . $reason];
+            return [ReanchorOutcome::RollbackSkipped, 'откат отменён, владелец возвращён (строку переписали): ' . $reason];
         }
 
         logger()->warning('reanchor rolled back', [
