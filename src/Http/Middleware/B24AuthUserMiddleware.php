@@ -7,6 +7,7 @@ use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
@@ -28,6 +29,19 @@ class B24AuthUserMiddleware
         $accessToken = $request->header('X-b24api-access-token');
         if (empty($accessToken)) {
             return response()->json(['error' => 'access token is null'], 406);
+        }
+
+        // Четвёртый обязательный заголовок, который раньше не проверялся: он
+        // уходит в AuthToken::$expires, а тот объявлен non-nullable int. Без
+        // заголовка (или с нечисловым значением) конструктор бросал TypeError,
+        // и вместо осмысленного отказа клиент получал 500.
+        $expires = $request->header('X-b24api-expires-in');
+        if ($expires === null || $expires === '') {
+            return response()->json(['error' => 'X-b24api-expires-in is null'], 406);
+        }
+
+        if (filter_var($expires, FILTER_VALIDATE_INT) === false) {
+            return response()->json(['error' => 'X-b24api-expires-in is not an integer'], 406);
         }
 
         if (!auth()->check() || (auth()->user()->getMemberId() != $memberId)) {
@@ -77,6 +91,17 @@ class B24AuthUserMiddleware
                 auth()->login($user);
             } catch (\Exception $e) {
                 return response()->json(['error' => $e->getMessage()], 401);
+            } catch (\Throwable $e) {
+                // \Error (TypeError и родня) — не отказ авторизации, а дефект:
+                // прежний catch его не перехватывал, и наружу уходила 500.
+                // Клиенту отдаём тот же 401, но без деталей — в сообщении
+                // Error лежат пути vendor. Подробности идут в лог.
+                Log::error('B24AuthUserMiddleware: ' . $e->getMessage(), [
+                    'member_id' => $memberId,
+                    'exception' => $e,
+                ]);
+
+                return response()->json(['error' => 'authorization failed'], 401);
             }
         }
         return $next($request);
