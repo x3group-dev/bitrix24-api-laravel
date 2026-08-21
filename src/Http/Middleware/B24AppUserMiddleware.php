@@ -5,7 +5,7 @@ namespace X3Group\Bitrix24\Http\Middleware;
 use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
-use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use X3Group\Bitrix24\Core\B24ServiceBuilderFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
@@ -40,7 +40,7 @@ class B24AppUserMiddleware
             try {
                 $oauthServerUrl = OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT'));
 
-                $b24 = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
+                $b24 = B24ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
                     placementRequest: $request,
                     applicationProfile: new ApplicationProfile(
                         clientId: config('bitrix24.client_id'),
