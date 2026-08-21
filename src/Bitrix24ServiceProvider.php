@@ -11,11 +11,11 @@ use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Credentials;
 use Bitrix24\SDK\Core\Credentials\Endpoints;
 use Bitrix24\SDK\Core\Credentials\Scope;
+use Bitrix24\SDK\Core\EndpointUrlFormatter;
 use Bitrix24\SDK\Events\AuthTokenRenewedEvent;
 use Bitrix24\SDK\Events\PortalDomainUrlChangedEvent;
 use Bitrix24\SDK\Infrastructure\HttpClient\RequestId\DefaultRequestIdGenerator;
 use Bitrix24\SDK\Services\ServiceBuilder;
-use Bitrix24\SDK\Services\ServiceBuilderFactory;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -35,13 +35,14 @@ use Monolog\Formatter\JsonFormatter;
 use Monolog\Handler\RotatingFileHandler;
 use Monolog\Logger;
 use Symfony\Component\EventDispatcher\EventDispatcher;
-use Symfony\Component\HttpClient\HttpClient;
 use X3Group\Bitrix24\Adapters\EventDispatcherAdapter;
 use X3Group\Bitrix24\Application\Install\AppSetupRunner;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppAuthDatabaseStorage;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\UserAuthDatabaseStorage;
+use X3Group\Bitrix24\Core\B24HttpClientFactory;
+use X3Group\Bitrix24\Core\B24ServiceBuilderFactory;
 use X3Group\Bitrix24\Http\Middleware\B24AppMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AppUserMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AuthUserMiddleware;
@@ -363,7 +364,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
                 expiresIn: $b24api->expires_in,
             );
 
-            $app = new ServiceBuilderFactory(
+            $app = new B24ServiceBuilderFactory(
                 eventDispatcher: resolve('appEvents'),
                 log: resolve('b24log', [
                     'memberId' => $memberId
@@ -378,7 +379,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
             );
 
             // User
-            $userClient = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
+            $userClient = B24ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
                 placementRequest: Request::createFromGlobals(),
                 applicationProfile: $applicationProfile,
                 eventDispatcher: new EventDispatcherAdapter(),
@@ -392,6 +393,9 @@ class Bitrix24ServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(ApiClient::class, function (Application $app, array $parameters) {
+            $logger = resolve('b24log', ['memberId' => $parameters['memberId']]);
+            $requestIdGenerator = new DefaultRequestIdGenerator();
+
             return new ApiClient(
                 credentials: new Credentials(
                     webhookUrl: null,
@@ -413,14 +417,11 @@ class Bitrix24ServiceProvider extends ServiceProvider
                         ),
                     ),
                 ),
-                client: HttpClient::create(),
-                requestIdGenerator: new DefaultRequestIdGenerator(),
-                apiLevelErrorHandler: new ApiLevelErrorHandler(resolve('b24log', [
-                    'memberId' => $parameters['memberId']
-                ])),
-                logger: resolve('b24log', [
-                    'memberId' => $parameters['memberId']
-                ]),
+                client: B24HttpClientFactory::make(),
+                requestIdGenerator: $requestIdGenerator,
+                apiLevelErrorHandler: new ApiLevelErrorHandler($logger),
+                urlFormatter: new EndpointUrlFormatter($requestIdGenerator, $logger),
+                logger: $logger,
             );
         });
 

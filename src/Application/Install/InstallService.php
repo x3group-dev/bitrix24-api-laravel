@@ -9,7 +9,7 @@ use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\Main\Common\EventHandlerMetadata;
-use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use X3Group\Bitrix24\Core\B24ServiceBuilderFactory;
 use Illuminate\Http\Request;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
@@ -61,7 +61,7 @@ class InstallService
 
         $probe = new InstallTokenProbe();
 
-        $b24probe = ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
+        $b24probe = B24ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
             placementRequest: $request,
             applicationProfile: $applicationProfile,
             eventDispatcher: $probe->eventDispatcher(),
@@ -100,7 +100,7 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        $b24 = (new ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),
@@ -157,7 +157,7 @@ class InstallService
         // запись в b24_apps не должна быть возможна.
         $probe = new InstallTokenProbe();
 
-        $b24probe = (new ServiceBuilderFactory(eventDispatcher: $probe->eventDispatcher(), log: $logger))
+        $b24probe = (new B24ServiceBuilderFactory(eventDispatcher: $probe->eventDispatcher(), log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $requestToken,
@@ -192,7 +192,7 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        $b24 = (new ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),

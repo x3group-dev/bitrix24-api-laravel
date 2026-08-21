@@ -6,7 +6,7 @@ use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilder;
-use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use X3Group\Bitrix24\Core\B24ServiceBuilderFactory;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
@@ -46,7 +46,7 @@ readonly class Bitrix24App
         /** @var EventDispatcher $eventDispatcher */
         $eventDispatcher = resolve('appEvents');
 
-        $app = new ServiceBuilderFactory(
+        $app = new B24ServiceBuilderFactory(
             eventDispatcher: $eventDispatcher,
             log: resolve('b24log', [
                 'memberId' => $memberId

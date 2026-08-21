@@ -6,7 +6,7 @@ use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
 use Bitrix24\SDK\Services\ServiceBuilder;
-use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use X3Group\Bitrix24\Core\B24ServiceBuilderFactory;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
@@ -28,7 +28,7 @@ readonly class Bitrix24User
         $this->memberId = $memberId;
         $this->userId = $userId;
 
-        $factory = new ServiceBuilderFactory(
+        $factory = new B24ServiceBuilderFactory(
             eventDispatcher: resolve('userEvents', [
                 'memberId' => $memberId,
                 'userId' => $userId,

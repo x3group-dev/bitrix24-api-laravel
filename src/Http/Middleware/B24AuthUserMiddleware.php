@@ -5,7 +5,7 @@ namespace X3Group\Bitrix24\Http\Middleware;
 use Bitrix24\SDK\Core\Credentials\ApplicationProfile;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Bitrix24\SDK\Core\Credentials\Scope;
-use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use X3Group\Bitrix24\Core\B24ServiceBuilderFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
@@ -59,7 +59,7 @@ class B24AuthUserMiddleware
                     expiresIn: 3600,
                 );
 
-                $factory = new ServiceBuilderFactory(
+                $factory = new B24ServiceBuilderFactory(
                     eventDispatcher: resolve('userEvents', [
                         'memberId' => $memberId,
                     ]),
