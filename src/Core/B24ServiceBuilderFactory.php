@@ -53,10 +53,11 @@ final class B24ServiceBuilderFactory
         string $oauthServerUrl,
     ): ServiceBuilder {
         return $this->getServiceBuilder(
-            Credentials::createFromOAuth(
-                $authToken,
-                $applicationProfile,
-                new Endpoints($bitrix24DomainUrl, $oauthServerUrl),
+            new B24Credentials(
+                webhookUrl: null,
+                authToken: $authToken,
+                applicationProfile: $applicationProfile,
+                endpoints: new Endpoints($bitrix24DomainUrl, $oauthServerUrl),
             )
         );
     }
