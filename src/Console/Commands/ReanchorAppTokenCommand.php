@@ -10,13 +10,14 @@ use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Bitrix24App;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
+use X3Group\Bitrix24\Support\SystemAppUser;
 
 /**
  * Ремонт порталов, у которых app-токен принадлежит не администратору: подбирает
  * администратора портала по b24_users и перепривязывает портал на него.
  *
  * Порталы раскладываются по пяти корзинам — здоров, на ремонт, ждёт входа админа, нужна
- * переустановка, нет данных; значение каждой описано на её методе отбора. --limit
+ * переустановка, нет данных (отбором берутся четыре, здоровые не выбираются); значение каждой описано на её методе отбора. --limit
  * ограничивает только корзину ремонта: диагностические корзины не делают REST-вызовов и
  * ничего не пишут, поэтому считаются целиком, а обрезаются лишь строки таблицы.
  *
@@ -82,7 +83,13 @@ class ReanchorAppTokenCommand extends Command
         $unknown = $this->applyScope($this->withoutEvidence(), $member, 0)->count();
 
         if ($broken->isEmpty() && $strandedTotal === 0 && $waitingTotal === 0 && $unknown === 0) {
-            $this->info('Порталов, требующих перепривязки, не найдено.');
+            // Закреплённый портал отсеян в applyScope() и пустых корзин от здорового не
+            // отличает: под явным --member причину нужно назвать.
+            if ($member && SystemAppUser::isAnchored($member)) {
+                $this->info('Портал закреплён за системным пользователем приложения, ремонт неприменим.');
+            } else {
+                $this->info('Порталов, требующих перепривязки, не найдено.');
+            }
 
             return self::SUCCESS;
         }
@@ -315,8 +322,8 @@ class ReanchorAppTokenCommand extends Command
      */
     private function applyScope(Builder $query, ?string $member, int $limit): Builder
     {
-        // Единственная точка, через которую проходят все пять корзин: закреплённый портал
-        // отсекается здесь. Значение бывает NULL у строк, созданных до появления колонки.
+        // Единственная точка, через которую проходят все четыре отбираемые корзины:
+        // закреплённый портал отсекается здесь. Условие на NULL — страховка: колонка NOT NULL.
         $query->where(function (Builder $builder): void {
             $builder->whereNull('is_system_user')->orWhere('is_system_user', false);
         });

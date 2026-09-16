@@ -140,6 +140,8 @@ BX24.ready(async function () {
 install-обработчике приложения нужна развилка в самом начале:
 
 ```php
+use X3Group\Bitrix24\Application\SystemUser\AppUserReadyService;
+
 if (AppUserReadyService::handles($request)) {
     return app(AppUserReadyService::class)->handle($request);
 }
@@ -149,11 +151,18 @@ if (AppUserReadyService::handles($request)) {
 установки), а событию нужен `JsonResponse`. Не поставить развилку — запрос уедет в логику
 установки, и портал получит HTML вместо JSON.
 
+Событие принимается, только если портал доказал подлинность: строка `b24_apps` существует,
+в ней сохранён непустой `application_token` и он совпал с присланным в `auth`. Иначе — `403`
+и запись в лог: `member_id` секретом не является, и без этой сверки подменить токены портала
+мог бы кто угодно.
+
 После успешного приёма события в `b24_apps` взводится якорь `is_system_user`, и с этого
-момента app-токен портала **не перезаписывается ничем** — ни повторной установкой
-(`AppTokenWriter`), ни ремонтными командами. Домен портала в событии резолвится из
-`client_endpoint` (или из сохранённой строки/`auth.domain`), а не из `data.domain` — там
-лежит домен сервера авторизации, а не портала.
+момента **токены доступа портала** (`access_token`, `refresh_token`, `expires`, `user_id`)
+не перезаписываются — ни повторной установкой (`AppTokenWriter`), ни ремонтными командами.
+Служебные поля строки — `application_token`, `domain`, `oauth_server_url` — переустановка
+по-прежнему обновляет: без свежего `application_token` портал перестал бы проходить проверку
+подписи событий. Домен портала в событии резолвится из сохранённой строки или
+`client_endpoint`, а не из `data.domain` — там лежит домен сервера авторизации, а не портала.
 
 Ключ `bitrix24.system_user.grant_entity_rights` (переменная окружения
 `BITRIX24_SYSTEM_USER_GRANT_ENTITY_RIGHTS`, по умолчанию выключен) после переезда ставит
