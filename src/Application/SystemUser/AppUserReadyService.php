@@ -120,12 +120,27 @@ class AppUserReadyService
         }
 
         if ($b24app === null) {
+            // domain NOT NULL без default: пустое значение здесь — не редкость, которую
+            // стоит ронять в SQL-ошибку, а внятный отказ, как у остальных проверок выше.
+            if ($domain === '') {
+                logger()->warning('ONAPPUSERREADY rejected: portal domain is unknown', [
+                    'member_id' => $memberId,
+                ]);
+
+                return response()->json(['error' => 'portal domain is unknown'], 400);
+            }
+
             $attributes['member_id'] = $memberId;
             if ($applicationToken !== '') {
                 $attributes['application_token'] = $applicationToken;
             }
+            // insert()/update() мимо модели таймстампы не проставляют (в отличие от
+            // create()/save() в AppAuthDatabaseStorage) — заполняем их сами.
+            $attributes['created_at'] = now();
+            $attributes['updated_at'] = now();
             B24App::query()->insert($attributes);
         } else {
+            $attributes['updated_at'] = now();
             B24App::query()->where('member_id', $memberId)->update($attributes);
         }
 
