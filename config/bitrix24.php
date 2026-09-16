@@ -30,4 +30,15 @@ return [
      * при открытии install-страницы и на событии ONAPPINSTALL.
      */
     'installers' => [],
+
+    /**
+     * Системный пользователь приложения (событие ONAPPUSERREADY).
+     *
+     * grant_entity_rights — после переезда выдать системному пользователю право X на все
+     * сущности entity.*. Нужно приложениям, которые хранят данные в entity-сущностях:
+     * без прав любая запись под системным пользователем отвечает ACCESS_DENIED.
+     */
+    'system_user' => [
+        'grant_entity_rights' => env('BITRIX24_SYSTEM_USER_GRANT_ENTITY_RIGHTS', false),
+    ],
 ];
