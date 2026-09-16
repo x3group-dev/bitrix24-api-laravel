@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
+use X3Group\Bitrix24\Support\SystemAppUser;
 
 /**
  * Централизованный поток установки приложения.
@@ -100,7 +101,14 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+        // На закреплённом портале хвост установки идёт токеном администратора, а слушатель
+        // 'appEvents' пишет любой его рефреш прямо в b24_apps мимо AppTokenWriter —
+        // диспетчер пробы такого слушателя не несёт.
+        $tailEventDispatcher = SystemAppUser::isAnchored($memberId)
+            ? $probe->eventDispatcher()
+            : resolve('appEvents');
+
+        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: $tailEventDispatcher, log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),
@@ -192,7 +200,14 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+        // На закреплённом портале хвост установки идёт токеном администратора, а слушатель
+        // 'appEvents' пишет любой его рефреш прямо в b24_apps мимо AppTokenWriter —
+        // диспетчер пробы такого слушателя не несёт.
+        $tailEventDispatcher = SystemAppUser::isAnchored($memberId)
+            ? $probe->eventDispatcher()
+            : resolve('appEvents');
+
+        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: $tailEventDispatcher, log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),

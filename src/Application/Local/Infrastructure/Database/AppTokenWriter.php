@@ -33,8 +33,8 @@ class AppTokenWriter
     public function saveIfAllowed(LocalAppAuth $auth, string $memberId, bool $isAdmin, ?int $userId = null): void
     {
         // Портал закреплён за системным пользователем (ONAPPUSERREADY) — его токен не
-        // перезаписывается ничем, включая переустановку админом. Проверка здесь, а не в
-        // shouldWrite(): тот остаётся чистым решателем и его зовут снаружи пакета.
+        // перезаписывается ничем, включая переустановку админом. shouldWrite() не годится:
+        // его зовут снаружи пакета.
         if (SystemAppUser::isAnchored($memberId)) {
             $this->logger->notice('b24 app token: keep existing (system user anchored)', [
                 'member_id' => $memberId,
