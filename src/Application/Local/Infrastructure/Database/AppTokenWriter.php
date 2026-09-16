@@ -4,9 +4,9 @@ namespace X3Group\Bitrix24\Application\Local\Infrastructure\Database;
 
 use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
+use Illuminate\Support\Facades\DB;
 use Psr\Log\LoggerInterface;
 use X3Group\Bitrix24\Models\B24App;
-use X3Group\Bitrix24\Support\SystemAppUser;
 
 class AppTokenWriter
 {
@@ -30,37 +30,47 @@ class AppTokenWriter
         return $ownerUserId !== null && $ownerUserId === $userId;
     }
 
+    /**
+     * Пишет app-токен портала под гейтом админства. На портале, закреплённом за системным
+     * пользователем, строка не трогается.
+     *
+     * Чтение якоря и запись идут в одной транзакции под блокировкой строки: событие
+     * ONAPPUSERREADY приходит в момент установки, и раздельные запрос-и-запись оставляли бы
+     * якорь на строке с токеном администратора.
+     */
     public function saveIfAllowed(LocalAppAuth $auth, string $memberId, bool $isAdmin, ?int $userId = null): void
     {
-        // Портал закреплён за системным пользователем (ONAPPUSERREADY) — его токен не
-        // перезаписывается ничем, включая переустановку админом. shouldWrite() не годится:
-        // его зовут снаружи пакета.
-        if (SystemAppUser::isAnchored($memberId)) {
-            $this->logger->notice('b24 app token: keep existing (system user anchored)', [
+        DB::transaction(function () use ($auth, $memberId, $isAdmin, $userId): void {
+            $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
+            $appExists = $b24app !== null;
+
+            if ($appExists && (bool) $b24app->is_system_user && (int) $b24app->user_id > 0) {
+                $this->logger->notice('b24 app token: keep existing (system user anchored)', [
+                    'member_id' => $memberId,
+                ]);
+
+                return;
+            }
+
+            if (!self::shouldWrite($appExists, $isAdmin)) {
+                $this->logger->notice('b24 app token: keep existing (non-admin overwrite blocked)', ['member_id' => $memberId]);
+
+                return;
+            }
+
+            (new AppAuthDatabaseStorage($memberId))->save($auth);
+
+            if ($userId !== null) {
+                B24App::query()->where('member_id', $memberId)->update(['user_id' => $userId]);
+            }
+
+            $this->logger->info('b24 app token: saved', [
                 'member_id' => $memberId,
+                'first_install' => !$appExists,
+                'is_admin' => $isAdmin,
+                'user_id' => $userId,
             ]);
-
-            return;
-        }
-
-        $appExists = B24App::query()->where('member_id', $memberId)->exists();
-        if (!self::shouldWrite($appExists, $isAdmin)) {
-            $this->logger->notice('b24 app token: keep existing (non-admin overwrite blocked)', ['member_id' => $memberId]);
-            return;
-        }
-
-        (new AppAuthDatabaseStorage($memberId))->save($auth);
-
-        if ($userId !== null) {
-            B24App::query()->where('member_id', $memberId)->update(['user_id' => $userId]);
-        }
-
-        $this->logger->info('b24 app token: saved', [
-            'member_id' => $memberId,
-            'first_install' => !$appExists,
-            'is_admin' => $isAdmin,
-            'user_id' => $userId,
-        ]);
+        });
     }
 
     /**
