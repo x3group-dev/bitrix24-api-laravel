@@ -37,6 +37,9 @@ use X3Group\Bitrix24\Models\B24User;
  * от имени всего портала; владельцем вправе быть только администратор, иначе админские
  * методы (userfieldconfig.*) падают «нет прав». Записывают владельца ровно два места:
  * установка админом и этот ремонт.
+ *
+ * Порталы, закреплённые за системным пользователем приложения (is_system_user), команда не
+ * обрабатывает ни в одной корзине: их app-токен перепривязывать нельзя.
  */
 class ReanchorAppTokenCommand extends Command
 {
@@ -312,6 +315,12 @@ class ReanchorAppTokenCommand extends Command
      */
     private function applyScope(Builder $query, ?string $member, int $limit): Builder
     {
+        // Единственная точка, через которую проходят все пять корзин: закреплённый портал
+        // отсекается здесь. Значение бывает NULL у строк, созданных до появления колонки.
+        $query->where(function (Builder $builder): void {
+            $builder->whereNull('is_system_user')->orWhere('is_system_user', false);
+        });
+
         if ($member) {
             $query->where('member_id', $member);
         }
