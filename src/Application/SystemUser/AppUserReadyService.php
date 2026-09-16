@@ -76,7 +76,12 @@ class AppUserReadyService
 
         $applicationToken = (string) ($auth['application_token'] ?? '');
 
-        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId): ?string {
+        // Грант администратора: прежние токен и адрес портала, снятые со строки до её
+        // перезаписи. Ими раздаются права системному пользователю — у него самого прав на
+        // это может не быть.
+        $grant = [];
+
+        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId, &$grant): ?string {
             // Строка читается под блокировкой и обновляется в той же транзакции: событие
             // приходит в момент установки, то есть параллельная запись — штатный сценарий.
             $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
@@ -123,6 +128,12 @@ class AppUserReadyService
                 $attributes['oauth_server_url'] = (string) $data['server_endpoint'];
             }
 
+            $grant = [
+                'access_token' => (string) $b24app->access_token,
+                'domain' => (string) ($attributes['domain'] ?? $b24app->domain),
+                'oauth_server_url' => $attributes['oauth_server_url'] ?? $b24app->oauth_server_url,
+            ];
+
             B24App::query()->where('member_id', $memberId)->update($attributes);
 
             return null;
@@ -145,8 +156,12 @@ class AppUserReadyService
         event(new SystemAppUserAnchored($memberId, $systemUserId));
 
         if (config('bitrix24.system_user.grant_entity_rights', false)) {
-            GrantSystemUserEntityRightsJob::dispatch($memberId)
-                ->delay(now()->addMinutes(self::RIGHTS_DELAY_MINUTES));
+            GrantSystemUserEntityRightsJob::dispatch(
+                $memberId,
+                $grant['access_token'],
+                $grant['domain'],
+                $grant['oauth_server_url'],
+            )->delay(now()->addMinutes(self::RIGHTS_DELAY_MINUTES));
         }
 
         return response()->json(['result' => true]);
