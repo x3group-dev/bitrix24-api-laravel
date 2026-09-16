@@ -92,10 +92,12 @@ class InstallService
             expires: (int)$request->input('AUTH_EXPIRES'),
         );
 
+        // APP_SID placement-запроса — это и есть application_token портала. Без него
+        // колонка остаётся пустой, и проверка подписи событий сверять становится не с чем.
         $localAppAuth = new LocalAppAuth(
             authToken: $probe->tokenForStorage($requestToken),
             domainUrl: $domainUrl,
-            applicationToken: null,
+            applicationToken: $request->input('APP_SID'),
             oauthServerUrl: $oauthServerUrl,
         );
 
