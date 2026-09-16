@@ -32,7 +32,8 @@ class AppTokenWriter
 
     /**
      * Пишет app-токен портала под гейтом админства. На портале, закреплённом за системным
-     * пользователем, строка не трогается.
+     * пользователем, токены доступа остаются прежними, а служебные поля строки
+     * (application_token, domain, oauth_server_url) обновляются.
      *
      * Чтение якоря и запись идут в одной транзакции под блокировкой строки: событие
      * ONAPPUSERREADY приходит в момент установки, и раздельные запрос-и-запись оставляли бы
@@ -45,7 +46,9 @@ class AppTokenWriter
             $appExists = $b24app !== null;
 
             if ($appExists && (bool) $b24app->is_system_user && (int) $b24app->user_id > 0) {
-                $this->logger->notice('b24 app token: keep existing (system user anchored)', [
+                $this->refreshServiceFields($b24app, $auth);
+
+                $this->logger->notice('b24 app token: keep existing tokens (system user anchored)', [
                     'member_id' => $memberId,
                 ]);
 
@@ -71,6 +74,33 @@ class AppTokenWriter
                 'user_id' => $userId,
             ]);
         });
+    }
+
+    /**
+     * Обновляет на закреплённой строке только служебные поля и только непустыми значениями:
+     * после переустановки портал выдаёт новый application_token, и без этого перестают
+     * проходить проверку подписи события и следующее ONAPPUSERREADY.
+     */
+    private function refreshServiceFields(B24App $b24app, LocalAppAuth $auth): void
+    {
+        $applicationToken = trim((string) $auth->getApplicationToken());
+        if ($applicationToken !== '') {
+            $b24app->application_token = $applicationToken;
+        }
+
+        $domain = trim($auth->getDomainUrl());
+        if ($domain !== '') {
+            $b24app->domain = $domain;
+        }
+
+        $oauthServerUrl = trim((string) ($auth->toArray()['oauth_server_url'] ?? ''));
+        if ($oauthServerUrl !== '') {
+            $b24app->oauth_server_url = $oauthServerUrl;
+        }
+
+        if ($b24app->isDirty()) {
+            $b24app->save();
+        }
     }
 
     /**
