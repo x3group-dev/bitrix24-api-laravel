@@ -6,6 +6,7 @@ use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
 use Psr\Log\LoggerInterface;
 use X3Group\Bitrix24\Models\B24App;
+use X3Group\Bitrix24\Support\SystemAppUser;
 
 class AppTokenWriter
 {
@@ -31,6 +32,17 @@ class AppTokenWriter
 
     public function saveIfAllowed(LocalAppAuth $auth, string $memberId, bool $isAdmin, ?int $userId = null): void
     {
+        // Портал закреплён за системным пользователем (ONAPPUSERREADY) — его токен не
+        // перезаписывается ничем, включая переустановку админом. Проверка здесь, а не в
+        // shouldWrite(): тот остаётся чистым решателем и его зовут снаружи пакета.
+        if (SystemAppUser::isAnchored($memberId)) {
+            $this->logger->notice('b24 app token: keep existing (system user anchored)', [
+                'member_id' => $memberId,
+            ]);
+
+            return;
+        }
+
         $appExists = B24App::query()->where('member_id', $memberId)->exists();
         if (!self::shouldWrite($appExists, $isAdmin)) {
             $this->logger->notice('b24 app token: keep existing (non-admin overwrite blocked)', ['member_id' => $memberId]);
