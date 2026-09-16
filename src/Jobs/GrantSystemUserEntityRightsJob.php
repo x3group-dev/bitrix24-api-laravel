@@ -5,7 +5,6 @@ namespace X3Group\Bitrix24\Jobs;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use RuntimeException;
@@ -21,11 +20,12 @@ use X3Group\Bitrix24\Support\SystemAppUser;
  * когда установщик приложения ещё может создавать сущности прежним токеном.
  *
  * Включается ключом конфига bitrix24.system_user.grant_entity_rights — приложениям без
- * entity.* она не нужна.
+ * entity.* она не нужна. Без трейта Dispatchable: он живёт в illuminate/foundation, которого
+ * пакет не объявляет — ставить задачу через dispatch(new self($memberId)).
  */
 class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use InteractsWithQueue, Queueable, SerializesModels;
 
     /** Каждый вызов портала ограничен только таймаутом HTTP-клиента SDK, а сущностей десятки.
      *  Окно уникальности равно таймауту: снять лок после SIGKILL некому. */
