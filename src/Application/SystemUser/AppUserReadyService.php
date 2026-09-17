@@ -3,6 +3,7 @@
 namespace X3Group\Bitrix24\Application\SystemUser;
 
 use Bitrix24\SDK\Core\Credentials\AuthToken;
+use Bitrix24\SDK\Core\Exceptions\TransportException as SdkTransportException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -120,7 +121,9 @@ class AppUserReadyService
                 'https://' . $portalHost,
                 $oauthServerUrl,
             );
-        } catch (TransportExceptionInterface $exception) {
+        // SdkTransportException приходит и на неизвестный код ошибки в ответе 400: повтор
+        // доставки события безопаснее окончательного отказа на временной неполадке.
+        } catch (TransportExceptionInterface | SdkTransportException $exception) {
             logger()->warning('ONAPPUSERREADY: oauth exchange transport failure', [
                 'member_id' => $memberId,
                 'exception_class' => $exception::class,
