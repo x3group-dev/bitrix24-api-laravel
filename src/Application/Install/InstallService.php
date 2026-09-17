@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
+use X3Group\Bitrix24\Support\SystemAppUser;
 
 /**
  * Централизованный поток установки приложения.
@@ -91,16 +92,25 @@ class InstallService
             expires: (int)$request->input('AUTH_EXPIRES'),
         );
 
+        // APP_SID placement-запроса — это application_token портала. Без него колонка
+        // остаётся пустой и проверять подпись событий не с чем.
         $localAppAuth = new LocalAppAuth(
             authToken: $probe->tokenForStorage($requestToken),
             domainUrl: $domainUrl,
-            applicationToken: null,
+            applicationToken: $request->input('APP_SID'),
             oauthServerUrl: $oauthServerUrl,
         );
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+        // На портале с включённым is_system_user остальные шаги установки идут токеном
+        // администратора, а слушатель 'appEvents' пишет любой его рефреш прямо в b24_apps
+        // мимо AppTokenWriter — у диспетчера InstallTokenProbe такого слушателя нет.
+        $tailEventDispatcher = SystemAppUser::isAnchored($memberId)
+            ? $probe->eventDispatcher()
+            : resolve('appEvents');
+
+        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: $tailEventDispatcher, log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),
@@ -192,7 +202,14 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: resolve('appEvents'), log: $logger))
+        // На портале с включённым is_system_user остальные шаги установки идут токеном
+        // администратора, а слушатель 'appEvents' пишет любой его рефреш прямо в b24_apps
+        // мимо AppTokenWriter — у диспетчера InstallTokenProbe такого слушателя нет.
+        $tailEventDispatcher = SystemAppUser::isAnchored($memberId)
+            ? $probe->eventDispatcher()
+            : resolve('appEvents');
+
+        $b24 = (new B24ServiceBuilderFactory(eventDispatcher: $tailEventDispatcher, log: $logger))
             ->init(
                 applicationProfile: $applicationProfile,
                 authToken: $probe->tokenForClient($requestToken),

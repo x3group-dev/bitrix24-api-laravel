@@ -23,7 +23,8 @@ use Illuminate\Support\Facades\DB;
  *   массовые означают ошибку интеграции (не та колонка, сменился формат, шифрование).
  *
  * Обрабатываются только строки с user_id IS NULL, поэтому повторный запуск дозаполняет
- * оставшееся и не пересматривает то, что проставил ремонт.
+ * оставшееся и не пересматривает то, что проставил ремонт. Порталы с включённым
+ * is_system_user пропускаются.
  */
 class AppOwnerBackfill
 {
@@ -37,8 +38,13 @@ class AppOwnerBackfill
         $unknownOwner = [];
         $unparseable = [];
 
+        // У портала с включённым is_system_user владелец уже проставлен приёмом события
+        // ONAPPUSERREADY. Условие на NULL — страховка: колонка NOT NULL.
         DB::table('b24_apps')
             ->whereNull('user_id')
+            ->where(function ($builder) {
+                $builder->whereNull('is_system_user')->orWhere('is_system_user', false);
+            })
             ->orderBy('id')
             ->chunkById(200, function ($rows) use (&$filled, &$notAdmin, &$unknownOwner, &$unparseable) {
                 foreach ($rows as $row) {

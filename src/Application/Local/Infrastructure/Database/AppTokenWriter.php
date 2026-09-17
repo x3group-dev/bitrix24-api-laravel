@@ -4,6 +4,7 @@ namespace X3Group\Bitrix24\Application\Local\Infrastructure\Database;
 
 use Bitrix24\SDK\Application\Local\Entity\LocalAppAuth;
 use Bitrix24\SDK\Core\Credentials\AuthToken;
+use Illuminate\Support\Facades\DB;
 use Psr\Log\LoggerInterface;
 use X3Group\Bitrix24\Models\B24App;
 
@@ -29,26 +30,76 @@ class AppTokenWriter
         return $ownerUserId !== null && $ownerUserId === $userId;
     }
 
+    /**
+     * Пишет app-токен портала при условии прав администратора. На портале с включённым
+     * is_system_user токены доступа остаются прежними, а служебные поля строки
+     * (application_token, domain, oauth_server_url) обновляются.
+     *
+     * Чтение флага и запись идут в одной транзакции под блокировкой строки: событие
+     * ONAPPUSERREADY приходит в момент установки, то есть параллельная запись штатна.
+     */
     public function saveIfAllowed(LocalAppAuth $auth, string $memberId, bool $isAdmin, ?int $userId = null): void
     {
-        $appExists = B24App::query()->where('member_id', $memberId)->exists();
-        if (!self::shouldWrite($appExists, $isAdmin)) {
-            $this->logger->notice('b24 app token: keep existing (non-admin overwrite blocked)', ['member_id' => $memberId]);
-            return;
+        DB::transaction(function () use ($auth, $memberId, $isAdmin, $userId): void {
+            $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
+            $appExists = $b24app !== null;
+
+            if ($appExists && (bool) $b24app->is_system_user && (int) $b24app->user_id > 0) {
+                $this->refreshServiceFields($b24app, $auth);
+
+                $this->logger->notice('b24 app token: keep existing tokens (portal switched to system user)', [
+                    'member_id' => $memberId,
+                ]);
+
+                return;
+            }
+
+            if (!self::shouldWrite($appExists, $isAdmin)) {
+                $this->logger->notice('b24 app token: keep existing (non-admin overwrite blocked)', ['member_id' => $memberId]);
+
+                return;
+            }
+
+            (new AppAuthDatabaseStorage($memberId))->save($auth);
+
+            if ($userId !== null) {
+                B24App::query()->where('member_id', $memberId)->update(['user_id' => $userId]);
+            }
+
+            $this->logger->info('b24 app token: saved', [
+                'member_id' => $memberId,
+                'first_install' => !$appExists,
+                'is_admin' => $isAdmin,
+                'user_id' => $userId,
+            ]);
+        });
+    }
+
+    /**
+     * Обновляет только служебные поля строки и только непустыми значениями: после
+     * переустановки портал выдаёт новый application_token, без которого не проходят проверку
+     * подписи события и следующее ONAPPUSERREADY.
+     */
+    private function refreshServiceFields(B24App $b24app, LocalAppAuth $auth): void
+    {
+        $applicationToken = trim((string) $auth->getApplicationToken());
+        if ($applicationToken !== '') {
+            $b24app->application_token = $applicationToken;
         }
 
-        (new AppAuthDatabaseStorage($memberId))->save($auth);
-
-        if ($userId !== null) {
-            B24App::query()->where('member_id', $memberId)->update(['user_id' => $userId]);
+        $domain = trim($auth->getDomainUrl());
+        if ($domain !== '') {
+            $b24app->domain = $domain;
         }
 
-        $this->logger->info('b24 app token: saved', [
-            'member_id' => $memberId,
-            'first_install' => !$appExists,
-            'is_admin' => $isAdmin,
-            'user_id' => $userId,
-        ]);
+        $oauthServerUrl = trim((string) ($auth->toArray()['oauth_server_url'] ?? ''));
+        if ($oauthServerUrl !== '') {
+            $b24app->oauth_server_url = $oauthServerUrl;
+        }
+
+        if ($b24app->isDirty()) {
+            $b24app->save();
+        }
     }
 
     /**

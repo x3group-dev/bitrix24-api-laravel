@@ -19,6 +19,9 @@ use X3Group\Bitrix24\Support\AppOwnerBackfill;
  *
  * Это НЕ ремонт: команда только записывает уже сложившееся владение. Порталы из корзины
  * «на ремонт» чинит bitrix24:reanchor-app-token.
+ *
+ * Порталы с включённым is_system_user не берутся: владелец у них проставлен приёмом
+ * события ONAPPUSERREADY.
  */
 class BackfillAppOwnerCommand extends Command
 {

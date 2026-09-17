@@ -10,6 +10,7 @@ use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Bitrix24App;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
+use X3Group\Bitrix24\Support\SystemAppUser;
 
 /**
  * Ремонт порталов, у которых app-токен принадлежит не администратору: подбирает
@@ -37,6 +38,9 @@ use X3Group\Bitrix24\Models\B24User;
  * от имени всего портала; владельцем вправе быть только администратор, иначе админские
  * методы (userfieldconfig.*) падают «нет прав». Записывают владельца ровно два места:
  * установка админом и этот ремонт.
+ *
+ * Порталы с включённым is_system_user команда не обрабатывает: их app-токен
+ * перепривязывать нельзя.
  */
 class ReanchorAppTokenCommand extends Command
 {
@@ -79,7 +83,13 @@ class ReanchorAppTokenCommand extends Command
         $unknown = $this->applyScope($this->withoutEvidence(), $member, 0)->count();
 
         if ($broken->isEmpty() && $strandedTotal === 0 && $waitingTotal === 0 && $unknown === 0) {
-            $this->info('Порталов, требующих перепривязки, не найдено.');
+            // Портал с включённым is_system_user исключён в applyScope(), и пустая выборка
+            // не отличается от здорового портала: под явным --member причину нужно назвать.
+            if ($member && SystemAppUser::isAnchored($member)) {
+                $this->info('Портал переведён на системного пользователя приложения, ремонт неприменим.');
+            } else {
+                $this->info('Порталов, требующих перепривязки, не найдено.');
+            }
 
             return self::SUCCESS;
         }
@@ -312,6 +322,12 @@ class ReanchorAppTokenCommand extends Command
      */
     private function applyScope(Builder $query, ?string $member, int $limit): Builder
     {
+        // Общий отбор для всех выбираемых категорий порталов: портал с включённым
+        // is_system_user исключается. Условие на NULL — страховка: колонка NOT NULL.
+        $query->where(function (Builder $builder): void {
+            $builder->whereNull('is_system_user')->orWhere('is_system_user', false);
+        });
+
         if ($member) {
             $query->where('member_id', $member);
         }
