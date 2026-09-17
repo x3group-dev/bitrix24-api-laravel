@@ -22,7 +22,7 @@ final class SystemAppUser
         try {
             $app = B24App::query()->where('member_id', $memberId)->first();
         } catch (\Throwable $exception) {
-            Log::warning('SystemAppUser: не удалось прочитать якорь системного пользователя', [
+            Log::warning('SystemAppUser: не удалось прочитать b24_apps', [
                 'member_id' => $memberId,
                 'exception_class' => $exception::class,
                 'exception_message' => $exception->getMessage(),

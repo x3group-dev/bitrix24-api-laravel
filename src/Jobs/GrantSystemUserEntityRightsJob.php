@@ -52,11 +52,11 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
     private const NO_REFRESH = 'no-refresh';
 
     /**
-     * @param  string  $grantAccessToken  access_token администратора, владевшего строкой до перехода
+     * @param  string  $adminAccessToken  access_token администратора, владевшего строкой до перехода
      */
     public function __construct(
         public string $memberId,
-        public string $grantAccessToken,
+        public string $adminAccessToken,
         public string $domain,
         public ?string $oauthServerUrl = null,
     ) {
@@ -72,17 +72,17 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
         $userId = SystemAppUser::idFor($this->memberId);
 
         if ($userId === null) {
-            logger()->warning('system user rights: portal is not anchored', [
+            logger()->warning('system user rights: portal is not switched to system user', [
                 'member_id' => $this->memberId,
             ]);
 
             return;
         }
 
-        if ($this->grantAccessToken === '' || $this->domain === '') {
-            logger()->warning('system user rights: administrator grant is missing', [
+        if ($this->adminAccessToken === '' || $this->domain === '') {
+            logger()->warning('system user rights: administrator token is missing', [
                 'member_id' => $this->memberId,
-                'has_access_token' => $this->grantAccessToken !== '',
+                'has_access_token' => $this->adminAccessToken !== '',
                 'domain' => $this->domain,
             ]);
 
@@ -95,7 +95,7 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
         } catch (Throwable $exception) {
             // Первый же вызов упал: токен администратора, снятый при переходе, к запуску
             // задачи протух. Повтор не поможет.
-            logger()->warning('system user rights: administrator grant is no longer valid', [
+            logger()->warning('system user rights: administrator token is no longer valid', [
                 'member_id' => $this->memberId,
                 'exception_class' => $exception::class,
                 'exception_message' => $exception->getMessage(),
@@ -184,7 +184,7 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
         ))->init(
             applicationProfile: $applicationProfile,
             authToken: new AuthToken(
-                accessToken: $this->grantAccessToken,
+                accessToken: $this->adminAccessToken,
                 refreshToken: self::NO_REFRESH,
                 expires: 0,
             ),

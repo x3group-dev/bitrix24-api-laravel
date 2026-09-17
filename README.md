@@ -178,7 +178,7 @@ if (AppUserReadyService::handles($request)) {
 сущностям. Клиент задачи собран на изолированном диспетчере событий: рефреш админского
 токена не должен попасть в `b24_apps` поверх токена системного пользователя. Если к запуску
 задачи (через две минуты) токен администратора протух, в лог идёт отдельное сообщение
-`system user rights: administrator grant is no longer valid` — права не выданы из-за
+`system user rights: administrator token is no longer valid` — права не выданы из-за
 протухшего токена, а не из-за прав.
 
 Событие `X3Group\Bitrix24\Events\SystemAppUserAnchored` (`memberId`, `systemUserId`) —

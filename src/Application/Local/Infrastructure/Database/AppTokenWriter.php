@@ -47,7 +47,7 @@ class AppTokenWriter
             if ($appExists && (bool) $b24app->is_system_user && (int) $b24app->user_id > 0) {
                 $this->refreshServiceFields($b24app, $auth);
 
-                $this->logger->notice('b24 app token: keep existing tokens (system user anchored)', [
+                $this->logger->notice('b24 app token: keep existing tokens (portal switched to system user)', [
                     'member_id' => $memberId,
                 ]);
 
