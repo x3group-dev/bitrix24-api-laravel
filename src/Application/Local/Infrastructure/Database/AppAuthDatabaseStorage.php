@@ -108,7 +108,14 @@ readonly class AppAuthDatabaseStorage implements LocalAppAuthRepositoryInterface
             $b24api->refresh_token = $localAppAuth->getAuthToken()->refreshToken;
             $b24api->expires = $expiresIn;
             $b24api->expires_in = $localAppAuth->getAuthToken()->expires;
-            $b24api->application_token = $localAppAuth->getApplicationToken();
+
+            // Токен подписи событий приходит только в серверных событиях; открытие
+            // установочной страницы его не несёт и затирать сохранённое значение не должно.
+            $applicationToken = (string) $localAppAuth->getApplicationToken();
+            if ($applicationToken !== '') {
+                $b24api->application_token = $applicationToken;
+            }
+
             $b24api->domain = $localAppAuth->getDomainUrl();
             $b24api->oauth_server_url = $localAppAuth->toArray()['oauth_server_url'] ?? OauthServerUrlResolver::EAST;
 

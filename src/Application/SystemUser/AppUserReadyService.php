@@ -2,9 +2,16 @@
 
 namespace X3Group\Bitrix24\Application\SystemUser;
 
+use Bitrix24\SDK\Core\Credentials\AuthToken;
+use Bitrix24\SDK\Core\Credentials\DefaultOAuthServerUrl;
+use Bitrix24\SDK\Core\Exceptions\TransportException as SdkTransportException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Contracts\HttpClient\Exception\DecodingExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Throwable;
+use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Events\SystemAppUserAnchored;
 use X3Group\Bitrix24\Jobs\GrantSystemUserEntityRightsJob;
 use X3Group\Bitrix24\Models\B24App;
@@ -15,8 +22,10 @@ use X3Group\Bitrix24\Models\B24App;
  * is_system_user, после которого токены доступа не перезаписываются установкой и
  * ремонтными командами.
  *
- * Запись разрешена только порталу, доказавшему подлинность: строка b24_apps существует,
- * в ней сохранён непустой application_token и он совпал с присланным. Иначе — 403.
+ * Подлинность события доказывается обменом присланного refresh-токена на сервере OAuth:
+ * обменять его может только владелец пары client_id/client_secret приложения. Ответ обмена
+ * содержит member_id, который сверяется с заявленным в событии. В b24_apps записываются
+ * токены ИЗ ОТВЕТА — присланные в событии после обмена отозваны Битриксом.
  *
  * Событие приходит POST-запросом на URL УСТАНОВКИ приложения — подписку портал создаёт
  * сам, event.bind не нужен. Проверка ставится в начале install-обработчика приложения:
@@ -75,108 +84,183 @@ class AppUserReadyService
             return response()->json(['error' => 'incomplete payload'], 400);
         }
 
-        $applicationToken = (string) ($auth['application_token'] ?? '');
+        $existing = B24App::query()->where('member_id', $memberId)->first();
 
-        // Токен администратора и адрес портала, снятые со строки до её перезаписи. Ими
-        // выдаются права системному пользователю — у него самого прав на это может не быть.
-        $adminAuth = [];
+        // Повторная доставка события: refresh-токен уже обменян, второй обмен получил бы
+        // отказ. Портал уже переведён на этого пользователя — делать нечего.
+        if ($existing !== null && (bool) $existing->is_system_user && (int) $existing->user_id === $systemUserId) {
+            logger()->info('ONAPPUSERREADY: already switched to this system user', [
+                'member_id' => $memberId,
+                'system_user_id' => $systemUserId,
+            ]);
 
-        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId, &$adminAuth): ?string {
-            // Строка читается под блокировкой и обновляется в той же транзакции: событие
-            // приходит в момент установки, то есть параллельная запись — штатный сценарий.
-            $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
+            return response()->json(['result' => true]);
+        }
 
-            if ($b24app === null) {
-                return 'portal is not installed';
-            }
-
-            $storedToken = (string) $b24app->application_token;
-
-            if ($storedToken === '') {
-                return 'application_token is not stored';
-            }
-
-            if (!hash_equals($storedToken, $applicationToken)) {
-                return 'application_token mismatch';
-            }
-
-            $expiresIn = (int) ($data['expires_in'] ?? 0);
-            if ($expiresIn <= 0) {
-                // Та же конвенция, что в AppAuthDatabaseStorage, Bitrix24App::renewTokens
-                // и AppTokenWriter: менять её нужно везде сразу.
-                $expiresIn = 3600;
-            }
-
-            $attributes = [
-                'access_token' => $accessToken,
-                'refresh_token' => $refreshToken,
-                'expires' => time() + $expiresIn,
-                'expires_in' => $expiresIn,
-                'user_id' => $systemUserId,
-                'is_system_user' => true,
-                'error_update' => 0,
-                // update() мимо модели таймстампы не проставляет.
-                'updated_at' => now(),
-            ];
-
-            $domain = $this->resolveDomain($b24app->domain, $data);
-            if ($domain !== '') {
-                $attributes['domain'] = $domain;
-            }
-
-            if (!empty($data['server_endpoint'])) {
-                $attributes['oauth_server_url'] = (string) $data['server_endpoint'];
-            }
-
-            $adminAuth = [
-                'access_token' => (string) $b24app->access_token,
-                'domain' => (string) ($attributes['domain'] ?? $b24app->domain),
-                'oauth_server_url' => $attributes['oauth_server_url'] ?? $b24app->oauth_server_url,
-            ];
-
-            B24App::query()->where('member_id', $memberId)->update($attributes);
-
-            return null;
-        });
-
-        if ($saved !== null) {
-            logger()->warning('ONAPPUSERREADY rejected: ' . $saved, [
+        $portalHost = (string) parse_url((string) ($data['client_endpoint'] ?? ''), PHP_URL_HOST);
+        if ($portalHost === '') {
+            logger()->warning('ONAPPUSERREADY rejected: client_endpoint has no host', [
                 'member_id' => $memberId,
             ]);
 
-            return response()->json(['error' => $saved], 403);
+            return response()->json(['error' => 'client_endpoint has no host'], 400);
+        }
+
+        // Адрес сервера OAuth берётся из своей строки, а при её отсутствии — из события
+        // по белому списку. Произвольный data.server_endpoint не годится: обмен на чужом
+        // хосте отдал бы client_id и client_secret приложения.
+        $oauthServerUrl = $existing !== null
+            ? OauthServerUrlResolver::orDefault($existing->oauth_server_url)
+            : $this->knownOauthServerUrl((string) ($data['server_endpoint'] ?? ''));
+
+        $expiresIn = (int) ($data['expires_in'] ?? 0);
+        if ($expiresIn <= 0) {
+            $expiresIn = 3600;
+        }
+
+        try {
+            $renewed = app(SystemUserTokenExchange::class)->exchange(
+                $memberId,
+                new AuthToken($accessToken, $refreshToken, time() + $expiresIn, $expiresIn),
+                'https://' . $portalHost,
+                $oauthServerUrl,
+            );
+        // DecodingExceptionInterface — ответ не JSON, например HTML-страница балансировщика.
+        // SdkTransportException приходит и на неизвестный код ошибки в ответе 400: повтор
+        // доставки события безопаснее окончательного отказа на временной неполадке.
+        } catch (TransportExceptionInterface | DecodingExceptionInterface | SdkTransportException $exception) {
+            logger()->warning('ONAPPUSERREADY: oauth exchange transport failure', [
+                'member_id' => $memberId,
+                'exception_class' => $exception::class,
+                'exception_message' => $exception->getMessage(),
+            ]);
+
+            return response()->json(['error' => 'oauth exchange unavailable'], 503);
+        } catch (Throwable $exception) {
+            logger()->warning('ONAPPUSERREADY rejected: oauth exchange refused', [
+                'member_id' => $memberId,
+                'exception_class' => $exception::class,
+                'exception_message' => $exception->getMessage(),
+            ]);
+
+            return response()->json(['error' => 'oauth exchange refused'], 403);
+        }
+
+        if (!hash_equals($memberId, (string) $renewed->memberId)) {
+            logger()->warning('ONAPPUSERREADY rejected: member_id not confirmed by oauth server', [
+                'member_id' => $memberId,
+                'confirmed_member_id' => $renewed->memberId,
+            ]);
+
+            return response()->json(['error' => 'member_id not confirmed'], 403);
+        }
+
+        // Адрес портала — хост из client_endpoint ответа, при его отсутствии хост из
+        // события. Поле domain ответа — хост сервера OAuth, не портала.
+        $confirmedHost = (string) parse_url((string) $renewed->clientEndpoint, PHP_URL_HOST);
+        if ($confirmedHost === '') {
+            $confirmedHost = $portalHost;
+        }
+
+        $attributes = [
+            'access_token' => $renewed->authToken->accessToken,
+            'refresh_token' => $renewed->authToken->refreshToken,
+            'expires' => $renewed->authToken->expires,
+            'expires_in' => $renewed->authToken->expiresIn ?? 3600,
+            'user_id' => $systemUserId,
+            'is_system_user' => true,
+            'error_update' => 0,
+            'oauth_server_url' => OauthServerUrlResolver::fromServerEndpoint($renewed->serverEndpoint),
+            'domain' => $confirmedHost,
+            // update() мимо модели таймстампы не проставляет.
+            'updated_at' => now(),
+        ];
+
+        $adminAuth = null;
+
+        try {
+            $inserted = DB::transaction(function () use ($memberId, $attributes, &$adminAuth): bool {
+                // Строка читается под блокировкой и обновляется в той же транзакции: событие
+                // приходит в момент установки, то есть параллельная запись — штатный сценарий.
+                $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
+
+                if ($b24app === null) {
+                    $attributes['member_id'] = $memberId;
+                    $attributes['created_at'] = now();
+                    B24App::query()->insert($attributes);
+
+                    return true;
+                }
+
+                // Токен администратора снимается до перезаписи: им выдаются права системному
+                // пользователю, у которого прав на это может не быть.
+                if ((string) $b24app->access_token !== '') {
+                    $adminAuth = [
+                        'access_token' => (string) $b24app->access_token,
+                        'domain' => (string) $attributes['domain'],
+                        'oauth_server_url' => $attributes['oauth_server_url'],
+                    ];
+                }
+
+                B24App::query()->where('member_id', $memberId)->update($attributes);
+
+                return false;
+            });
+        } catch (Throwable $exception) {
+            // Присланный refresh-токен обменом уже отозван: без записи портал остался без
+            // рабочей пары токенов до переустановки приложения.
+            logger()->error('ONAPPUSERREADY: exchange succeeded but write failed', [
+                'member_id' => $memberId,
+                'exception_class' => $exception::class,
+                'exception_message' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
         }
 
         logger()->info('ONAPPUSERREADY: system user token saved', [
             'member_id' => $memberId,
             'system_user_id' => $systemUserId,
+            'first_row' => $inserted,
             'scope' => $data['scope'] ?? null,
         ]);
 
         event(new SystemAppUserAnchored($memberId, $systemUserId));
 
         if (config('bitrix24.system_user.grant_entity_rights', false)) {
-            GrantSystemUserEntityRightsJob::dispatch(
-                $memberId,
-                $adminAuth['access_token'],
-                $adminAuth['domain'],
-                $adminAuth['oauth_server_url'],
-            )->delay(now()->addMinutes(self::RIGHTS_DELAY_MINUTES));
+            if ($adminAuth === null) {
+                // Строки не было: сущности создаст установка уже под системным
+                // пользователем, выдавать права некому и не за что.
+                logger()->info('ONAPPUSERREADY: rights job skipped, no administrator token', [
+                    'member_id' => $memberId,
+                ]);
+            } else {
+                GrantSystemUserEntityRightsJob::dispatch(
+                    $memberId,
+                    $adminAuth['access_token'],
+                    $adminAuth['domain'],
+                    $adminAuth['oauth_server_url'],
+                )->delay(now()->addMinutes(self::RIGHTS_DELAY_MINUTES));
+            }
         }
 
         return response()->json(['result' => true]);
     }
 
     /**
-     * Домен портала: сохранённый, иначе хост из client_endpoint. В data.domain лежит домен
-     * сервера авторизации, а не портала, поэтому он не используется вовсе.
+     * Сервер OAuth для портала без строки в b24_apps: хост из data.server_endpoint
+     * принимается только по списку серверов SDK, иначе берётся значение по умолчанию.
      */
-    private function resolveDomain(?string $storedDomain, array $data): string
+    private function knownOauthServerUrl(string $serverEndpoint): string
     {
-        if (!empty($storedDomain)) {
-            return (string) $storedDomain;
+        $host = (string) parse_url($serverEndpoint, PHP_URL_HOST);
+
+        foreach ([DefaultOAuthServerUrl::east(), DefaultOAuthServerUrl::west()] as $knownUrl) {
+            if ($host !== '' && $host === parse_url($knownUrl, PHP_URL_HOST)) {
+                return $knownUrl;
+            }
         }
 
-        return (string) (parse_url((string) ($data['client_endpoint'] ?? ''), PHP_URL_HOST) ?: '');
+        return OauthServerUrlResolver::orDefault(null);
     }
 }
