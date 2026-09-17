@@ -80,8 +80,9 @@ class AppUserReadyService
         // Токен администратора и адрес портала, снятые со строки до её перезаписи. Ими
         // выдаются права системному пользователю — у него самого прав на это может не быть.
         $adminAuth = [];
+        $diagnostics = [];
 
-        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId, &$adminAuth): ?string {
+        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId, &$adminAuth, &$diagnostics): ?string {
             // Строка читается под блокировкой и обновляется в той же транзакции: событие
             // приходит в момент установки, то есть параллельная запись — штатный сценарий.
             $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
@@ -97,6 +98,16 @@ class AppUserReadyService
             }
 
             if (!hash_equals($storedToken, $applicationToken)) {
+                // Префиксы, а не значения: по ним видно, разошлись токены или это тот же
+                // токен в другом виде, и при этом подобрать секрет по шести символам нельзя.
+                $diagnostics = [
+                    'stored_prefix' => substr($storedToken, 0, 6),
+                    'stored_length' => strlen($storedToken),
+                    'received_prefix' => substr($applicationToken, 0, 6),
+                    'received_length' => strlen($applicationToken),
+                    'row_updated_at' => (string) $b24app->updated_at,
+                ];
+
                 return 'application_token mismatch';
             }
 
@@ -140,9 +151,9 @@ class AppUserReadyService
         });
 
         if ($saved !== null) {
-            logger()->warning('ONAPPUSERREADY rejected: ' . $saved, [
+            logger()->warning('ONAPPUSERREADY rejected: ' . $saved, array_merge([
                 'member_id' => $memberId,
-            ]);
+            ], $diagnostics));
 
             return response()->json(['error' => $saved], 403);
         }

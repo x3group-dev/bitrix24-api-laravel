@@ -71,6 +71,9 @@ class AppTokenWriter
                 'first_install' => !$appExists,
                 'is_admin' => $isAdmin,
                 'user_id' => $userId,
+                // Префикс записанного application_token: по нему сверяется подпись событий
+                // портала, и по логу видно, какое значение туда попало на установке.
+                'application_token_prefix' => substr((string) $auth->getApplicationToken(), 0, 6),
             ]);
         });
     }
