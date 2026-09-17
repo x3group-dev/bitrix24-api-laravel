@@ -22,11 +22,11 @@ use X3Group\Bitrix24\Support\SystemAppUser;
 /**
  * Выдаёт системному пользователю приложения право X на все сущности портала (entity.*).
  *
- * Без прав на существующие сущности переезд app-токена на системного пользователя даёт
+ * Без прав на существующие сущности перевод app-токена на системного пользователя даёт
  * ACCESS_DENIED на любой записи. Задача отложенная: событие приходит сразу после установки,
  * когда установщик приложения ещё может создавать сущности прежним токеном.
  *
- * Ходит в портал ПРЕЖНИМ токеном владельца-администратора, снятым со строки b24_apps до её
+ * Ходит в портал прежним токеном владельца-администратора, снятым со строки b24_apps до её
  * перезаписи: менять ACCESS сущности вправе её владелец или администратор портала, а
  * системный пользователь не обязан быть ни тем, ни другим.
  *
@@ -38,7 +38,7 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /** Каждый вызов портала ограничен только таймаутом HTTP-клиента SDK, а сущностей десятки.
-     *  Окно уникальности равно таймауту: снять лок после SIGKILL некому. */
+     *  Окно уникальности равно таймауту: после SIGKILL воркера блокировку снять некому. */
     public int $uniqueFor = 900;
 
     public int $timeout = 900;
@@ -48,11 +48,11 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
     /** Повтор имеет смысл: отказ портала на части сущностей обычно временный. */
     public array $backoff = [60, 300];
 
-    /** SDK запрещает пустой refresh_token, а обновлять грант администратора мы не будем. */
+    /** SDK запрещает пустой refresh_token, а токен администратора мы не обновляем. */
     private const NO_REFRESH = 'no-refresh';
 
     /**
-     * @param  string  $grantAccessToken  access_token администратора, владевшего строкой до переезда
+     * @param  string  $grantAccessToken  access_token администратора, владевшего строкой до перехода
      */
     public function __construct(
         public string $memberId,
@@ -93,8 +93,8 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
             $entityScope = $this->entityScope();
             $entities = $entityScope->entity()->get()->getEntities();
         } catch (Throwable $exception) {
-            // Первый же вызов упал: токен администратора, снятый при переезде, к запуску
-            // задачи протух. Права не выданы не из-за прав, и повтор не поможет.
+            // Первый же вызов упал: токен администратора, снятый при переходе, к запуску
+            // задачи протух. Повтор не поможет.
             logger()->warning('system user rights: administrator grant is no longer valid', [
                 'member_id' => $this->memberId,
                 'exception_class' => $exception::class,
@@ -165,10 +165,10 @@ class GrantSystemUserEntityRightsJob implements ShouldQueue, ShouldBeUnique
     }
 
     /**
-     * Клиент на прежнем токене администратора. Диспетчер событий — голый, без слушателей:
-     * рефреш этого токена сохранять некуда и незачем (в b24_apps уже системный пользователь,
-     * и запись затёрла бы его). Рефреш и не состоится: refresh_token в клиент не передаётся,
-     * протухший грант упирается в отказ портала и уходит в лог.
+     * Клиент на прежнем токене администратора. Диспетчер событий без слушателей: рефреш
+     * этого токена сохранять некуда — в b24_apps уже токен системного пользователя, запись
+     * затёрла бы его. Рефреш и не состоится: refresh_token в клиент не передаётся, а
+     * протухший токен даёт отказ портала в логе.
      */
     private function entityScope(): EntityServiceBuilder
     {

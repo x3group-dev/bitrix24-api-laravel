@@ -5,8 +5,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Якорь app-токена: портал переведён на системного пользователя приложения
- * (событие ONAPPUSERREADY), и его токен больше не перезаписывается установкой.
+ * Флаг is_system_user: портал переведён на системного пользователя приложения
+ * (событие ONAPPUSERREADY), и его токены доступа больше не перезаписываются установкой.
  */
 return new class extends Migration
 {

@@ -92,8 +92,8 @@ class InstallService
             expires: (int)$request->input('AUTH_EXPIRES'),
         );
 
-        // APP_SID placement-запроса — это и есть application_token портала. Без него
-        // колонка остаётся пустой, и проверка подписи событий сверять становится не с чем.
+        // APP_SID placement-запроса — это application_token портала. Без него колонка
+        // остаётся пустой и проверять подпись событий не с чем.
         $localAppAuth = new LocalAppAuth(
             authToken: $probe->tokenForStorage($requestToken),
             domainUrl: $domainUrl,
@@ -103,9 +103,9 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        // На закреплённом портале хвост установки идёт токеном администратора, а слушатель
-        // 'appEvents' пишет любой его рефреш прямо в b24_apps мимо AppTokenWriter —
-        // диспетчер пробы такого слушателя не несёт.
+        // На портале с включённым is_system_user остальные шаги установки идут токеном
+        // администратора, а слушатель 'appEvents' пишет любой его рефреш прямо в b24_apps
+        // мимо AppTokenWriter — у диспетчера InstallTokenProbe такого слушателя нет.
         $tailEventDispatcher = SystemAppUser::isAnchored($memberId)
             ? $probe->eventDispatcher()
             : resolve('appEvents');
@@ -202,9 +202,9 @@ class InstallService
 
         app(AppTokenWriter::class)->saveIfAllowed($localAppAuth, $memberId, $isAdmin, $userId);
 
-        // На закреплённом портале хвост установки идёт токеном администратора, а слушатель
-        // 'appEvents' пишет любой его рефреш прямо в b24_apps мимо AppTokenWriter —
-        // диспетчер пробы такого слушателя не несёт.
+        // На портале с включённым is_system_user остальные шаги установки идут токеном
+        // администратора, а слушатель 'appEvents' пишет любой его рефреш прямо в b24_apps
+        // мимо AppTokenWriter — у диспетчера InstallTokenProbe такого слушателя нет.
         $tailEventDispatcher = SystemAppUser::isAnchored($memberId)
             ? $probe->eventDispatcher()
             : resolve('appEvents');
