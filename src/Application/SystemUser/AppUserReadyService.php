@@ -3,10 +3,12 @@
 namespace X3Group\Bitrix24\Application\SystemUser;
 
 use Bitrix24\SDK\Core\Credentials\AuthToken;
+use Bitrix24\SDK\Core\Credentials\DefaultOAuthServerUrl;
 use Bitrix24\SDK\Core\Exceptions\TransportException as SdkTransportException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Contracts\HttpClient\Exception\DecodingExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Throwable;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
@@ -104,10 +106,12 @@ class AppUserReadyService
             return response()->json(['error' => 'client_endpoint has no host'], 400);
         }
 
-        // Адрес сервера OAuth берётся из своей строки или из значения по умолчанию.
-        // data.server_endpoint из события не используется: обмен на чужом хосте отдал бы
-        // client_id и client_secret приложения.
-        $oauthServerUrl = OauthServerUrlResolver::orDefault($existing?->oauth_server_url);
+        // Адрес сервера OAuth берётся из своей строки, а при её отсутствии — из события
+        // по белому списку. Произвольный data.server_endpoint не годится: обмен на чужом
+        // хосте отдал бы client_id и client_secret приложения.
+        $oauthServerUrl = $existing !== null
+            ? OauthServerUrlResolver::orDefault($existing->oauth_server_url)
+            : $this->knownOauthServerUrl((string) ($data['server_endpoint'] ?? ''));
 
         $expiresIn = (int) ($data['expires_in'] ?? 0);
         if ($expiresIn <= 0) {
@@ -121,9 +125,10 @@ class AppUserReadyService
                 'https://' . $portalHost,
                 $oauthServerUrl,
             );
+        // DecodingExceptionInterface — ответ не JSON, например HTML-страница балансировщика.
         // SdkTransportException приходит и на неизвестный код ошибки в ответе 400: повтор
         // доставки события безопаснее окончательного отказа на временной неполадке.
-        } catch (TransportExceptionInterface | SdkTransportException $exception) {
+        } catch (TransportExceptionInterface | DecodingExceptionInterface | SdkTransportException $exception) {
             logger()->warning('ONAPPUSERREADY: oauth exchange transport failure', [
                 'member_id' => $memberId,
                 'exception_class' => $exception::class,
@@ -150,9 +155,12 @@ class AppUserReadyService
             return response()->json(['error' => 'member_id not confirmed'], 403);
         }
 
-        // Адрес портала — хост из client_endpoint ответа. Поле domain ответа — хост
-        // сервера OAuth, не портала.
+        // Адрес портала — хост из client_endpoint ответа, при его отсутствии хост из
+        // события. Поле domain ответа — хост сервера OAuth, не портала.
         $confirmedHost = (string) parse_url((string) $renewed->clientEndpoint, PHP_URL_HOST);
+        if ($confirmedHost === '') {
+            $confirmedHost = $portalHost;
+        }
 
         $attributes = [
             'access_token' => $renewed->authToken->accessToken,
@@ -163,45 +171,57 @@ class AppUserReadyService
             'is_system_user' => true,
             'error_update' => 0,
             'oauth_server_url' => OauthServerUrlResolver::fromServerEndpoint($renewed->serverEndpoint),
+            'domain' => $confirmedHost,
             // update() мимо модели таймстампы не проставляет.
             'updated_at' => now(),
         ];
-        if ($confirmedHost !== '') {
-            $attributes['domain'] = $confirmedHost;
-        }
 
         $adminAuth = null;
 
-        DB::transaction(function () use ($memberId, $attributes, &$adminAuth): void {
-            // Строка читается под блокировкой и обновляется в той же транзакции: событие
-            // приходит в момент установки, то есть параллельная запись — штатный сценарий.
-            $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
+        try {
+            $inserted = DB::transaction(function () use ($memberId, $attributes, &$adminAuth): bool {
+                // Строка читается под блокировкой и обновляется в той же транзакции: событие
+                // приходит в момент установки, то есть параллельная запись — штатный сценарий.
+                $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
 
-            if ($b24app === null) {
-                $attributes['member_id'] = $memberId;
-                $attributes['created_at'] = now();
-                B24App::query()->insert($attributes);
+                if ($b24app === null) {
+                    $attributes['member_id'] = $memberId;
+                    $attributes['created_at'] = now();
+                    B24App::query()->insert($attributes);
 
-                return;
-            }
+                    return true;
+                }
 
-            // Токен администратора снимается до перезаписи: им выдаются права системному
-            // пользователю, у которого прав на это может не быть.
-            if ((string) $b24app->access_token !== '') {
-                $adminAuth = [
-                    'access_token' => (string) $b24app->access_token,
-                    'domain' => (string) ($attributes['domain'] ?? $b24app->domain),
-                    'oauth_server_url' => $attributes['oauth_server_url'],
-                ];
-            }
+                // Токен администратора снимается до перезаписи: им выдаются права системному
+                // пользователю, у которого прав на это может не быть.
+                if ((string) $b24app->access_token !== '') {
+                    $adminAuth = [
+                        'access_token' => (string) $b24app->access_token,
+                        'domain' => (string) $attributes['domain'],
+                        'oauth_server_url' => $attributes['oauth_server_url'],
+                    ];
+                }
 
-            B24App::query()->where('member_id', $memberId)->update($attributes);
-        });
+                B24App::query()->where('member_id', $memberId)->update($attributes);
+
+                return false;
+            });
+        } catch (Throwable $exception) {
+            // Присланный refresh-токен обменом уже отозван: без записи портал остался без
+            // рабочей пары токенов до переустановки приложения.
+            logger()->error('ONAPPUSERREADY: exchange succeeded but write failed', [
+                'member_id' => $memberId,
+                'exception_class' => $exception::class,
+                'exception_message' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
+        }
 
         logger()->info('ONAPPUSERREADY: system user token saved', [
             'member_id' => $memberId,
             'system_user_id' => $systemUserId,
-            'first_row' => $existing === null,
+            'first_row' => $inserted,
             'scope' => $data['scope'] ?? null,
         ]);
 
@@ -225,5 +245,22 @@ class AppUserReadyService
         }
 
         return response()->json(['result' => true]);
+    }
+
+    /**
+     * Сервер OAuth для портала без строки в b24_apps: хост из data.server_endpoint
+     * принимается только по списку серверов SDK, иначе берётся значение по умолчанию.
+     */
+    private function knownOauthServerUrl(string $serverEndpoint): string
+    {
+        $host = (string) parse_url($serverEndpoint, PHP_URL_HOST);
+
+        foreach ([DefaultOAuthServerUrl::east(), DefaultOAuthServerUrl::west()] as $knownUrl) {
+            if ($host !== '' && $host === parse_url($knownUrl, PHP_URL_HOST)) {
+                return $knownUrl;
+            }
+        }
+
+        return OauthServerUrlResolver::orDefault(null);
     }
 }
