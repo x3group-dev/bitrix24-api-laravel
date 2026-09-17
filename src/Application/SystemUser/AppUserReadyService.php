@@ -79,9 +79,9 @@ class AppUserReadyService
 
         // Токен администратора и адрес портала, снятые со строки до её перезаписи. Ими
         // выдаются права системному пользователю — у него самого прав на это может не быть.
-        $grant = [];
+        $adminAuth = [];
 
-        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId, &$grant): ?string {
+        $saved = DB::transaction(function () use ($memberId, $applicationToken, $data, $accessToken, $refreshToken, $systemUserId, &$adminAuth): ?string {
             // Строка читается под блокировкой и обновляется в той же транзакции: событие
             // приходит в момент установки, то есть параллельная запись — штатный сценарий.
             $b24app = B24App::query()->where('member_id', $memberId)->lockForUpdate()->first();
@@ -128,7 +128,7 @@ class AppUserReadyService
                 $attributes['oauth_server_url'] = (string) $data['server_endpoint'];
             }
 
-            $grant = [
+            $adminAuth = [
                 'access_token' => (string) $b24app->access_token,
                 'domain' => (string) ($attributes['domain'] ?? $b24app->domain),
                 'oauth_server_url' => $attributes['oauth_server_url'] ?? $b24app->oauth_server_url,
@@ -158,9 +158,9 @@ class AppUserReadyService
         if (config('bitrix24.system_user.grant_entity_rights', false)) {
             GrantSystemUserEntityRightsJob::dispatch(
                 $memberId,
-                $grant['access_token'],
-                $grant['domain'],
-                $grant['oauth_server_url'],
+                $adminAuth['access_token'],
+                $adminAuth['domain'],
+                $adminAuth['oauth_server_url'],
             )->delay(now()->addMinutes(self::RIGHTS_DELAY_MINUTES));
         }
 
