@@ -154,6 +154,8 @@
 
 ### Исправлено
 
+- **Шаблоны `index`, `install`, `install-fail` подключают JS-SDK с `api.bitrix24.tech`** вместо
+  `api.bitrix24.com`.
 - **`B24AuthUserMiddleware` больше не отвечает 500 на запрос без `X-b24api-expires-in`.**
   Заголовок обязателен наравне с `member-id`, `domain` и `access-token` — он уходит в
   `AuthToken::$expires`, объявленный как non-nullable `int`, — но единственный из четырёх
