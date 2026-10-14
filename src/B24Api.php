@@ -9,6 +9,7 @@ use Bitrix24Api\Exceptions\ApiException;
 use Bitrix24Api\Exceptions\ApplicationNotInstalled;
 use Bitrix24Api\Exceptions\ExpiredRefreshToken;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use JetBrains\PhpStorm\ArrayShape;
 use Monolog\Handler\RotatingFileHandler;
@@ -20,6 +21,9 @@ use X3Group\B24Api\Models\B24User;
  */
 class B24Api
 {
+    /** Минимальный интервал между синхронизациями client_endpoint одного портала, секунды */
+    protected const SYNC_CLIENT_ENDPOINT_INTERVAL = 300;
+
     protected Logger $log;
     protected string $memberId;
     protected ApiClient $api;
@@ -171,6 +175,41 @@ class B24Api
                     'member_id' => $b24->member_id,
                 ]);
             }
+        }
+    }
+
+    /**
+     * Обновляет client_endpoint портала ответом OAuth-сервера, если домен запроса отличается от сохранённого.
+     * Домен из запроса только запускает обновление токена, в базу он не записывается.
+     */
+    public static function syncClientEndpoint(string $memberId, ?string $requestDomain): void
+    {
+        if (empty($requestDomain)) {
+            return;
+        }
+
+        $portal = \X3Group\B24Api\Models\B24Api::where('member_id', $memberId)->first();
+        if (!$portal || empty($portal->client_endpoint)) {
+            return;
+        }
+
+        $endpoint = parse_url($portal->client_endpoint);
+        $savedDomain = ($endpoint['host'] ?? '') . (isset($endpoint['port']) ? ':' . $endpoint['port'] : '');
+        if (strcasecmp($savedDomain, $requestDomain) === 0) {
+            return;
+        }
+
+        if (!Cache::add('b24api:sync-client-endpoint:' . $memberId, 1, self::SYNC_CLIENT_ENDPOINT_INTERVAL)) {
+            return;
+        }
+
+        try {
+            (new self($memberId))->getApi()->getNewAccessToken();
+        } catch (\Throwable $exception) {
+            Log::warning('Error sync portal client_endpoint. Exception: ' . $exception->getMessage(), [
+                'portal' => $portal->client_endpoint,
+                'member_id' => $memberId,
+            ]);
         }
     }
 

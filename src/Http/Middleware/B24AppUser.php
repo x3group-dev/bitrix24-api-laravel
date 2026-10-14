@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use X3Group\B24Api\B24Api;
 use X3Group\B24Api\B24ApiUserRequest;
 use X3Group\B24Api\Models\B24User;
 
@@ -33,6 +34,7 @@ class B24AppUser
                 return response()->json(['error' => 'AUTH_ID is null'], 406);
 
             try {
+                B24Api::syncClientEndpoint((string)$memberId, $request->get('DOMAIN'));
                 $api = new B24ApiUserRequest($memberId, $request->post('AUTH_ID'), $request->post('REFRESH_ID'), $request->get('APP_SID'));
                 if ($profile = $api->getProfile()) {
                     $userFind = B24User::where('user_id', $profile['ID'])->where('member_id', $request->post('member_id'))->first();
