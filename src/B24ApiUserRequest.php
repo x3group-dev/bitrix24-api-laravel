@@ -43,8 +43,8 @@ class B24ApiUserRequest extends B24Api
     public function getProfile(): bool|array
     {
         try {
-            return $this->api->profile()->call()->toArray();
-        } catch (\Exception $exception) {
+            return $this->api->profile()->call()?->toArray() ?? false;
+        } catch (\Throwable $exception) {
             Log::error($exception);
         }
 
