@@ -13,6 +13,7 @@ use X3Group\Bitrix24\Application\Local\Infrastructure\Database\AppTokenWriter;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
+use X3Group\Bitrix24\Support\PortalDomain;
 
 class B24AppUserMiddleware
 {
@@ -38,6 +39,12 @@ class B24AppUserMiddleware
                 return response()->json(['error' => 'AUTH_ID is null'], 406);
 
             try {
+                // DOMAIN должен совпадать с доменом установки member_id.
+                $b24app = B24App::query()->where('member_id', $memberId)->first();
+                if (!PortalDomain::matches($b24app, $request->query->get('DOMAIN'))) {
+                    throw new \Exception('domain does not match member_id');
+                }
+
                 $oauthServerUrl = OauthServerUrlResolver::fromServerEndpoint($request->input('SERVER_ENDPOINT'));
 
                 $b24 = B24ServiceBuilderFactory::createServiceBuilderFromPlacementRequest(
