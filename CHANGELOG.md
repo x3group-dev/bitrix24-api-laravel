@@ -3,6 +3,18 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — по [семантическому версионированию](https://semver.org/lang/ru/).
 
+## [3.6.3] — не выпущено
+
+### Исправлено
+
+- Переименованный портал больше не получает `401` в `B24AppUserMiddleware` и
+  `B24AuthUserMiddleware` из-за сверки домена: при несовпадении домена запроса с
+  `b24_apps.domain` `Support\PortalDomainRename` проверяет, что REST старого домена отвечает
+  `302` на домен из запроса, и записывает новый домен в `b24_apps` и `b24_users`. Домен
+  обновляется и у портала с недействительным app-токеном, где `PortalDomainUrlChangedEvent`
+  не отправляется.
+- `Support\PortalDomain::normalize()` стал публичным.
+
 ## [3.6.2] — не выпущено
 
 ### Изменено

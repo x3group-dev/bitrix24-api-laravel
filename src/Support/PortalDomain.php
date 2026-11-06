@@ -21,7 +21,8 @@ final class PortalDomain
         return $stored !== '' && $stored === self::normalize($requestDomain);
     }
 
-    private static function normalize(?string $domain): string
+    /** Хост в нижнем регистре без схемы и завершающего слэша. */
+    public static function normalize(?string $domain): string
     {
         $domain = strtolower(trim((string) $domain));
         $domain = preg_replace('#^https?://#', '', $domain);

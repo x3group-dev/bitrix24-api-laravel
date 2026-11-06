@@ -47,6 +47,7 @@ use X3Group\Bitrix24\Http\Middleware\B24AppMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AppUserMiddleware;
 use X3Group\Bitrix24\Http\Middleware\B24AuthUserMiddleware;
 use X3Group\Bitrix24\Listeners\PortalDomainUrlChangedListener;
+use X3Group\Bitrix24\Support\PortalDomainRename;
 use X3Group\Bitrix24\Logging\ContentTruncatingProcessor;
 use X3Group\Bitrix24\Logging\MetadataProcessor;
 use X3Group\Bitrix24\Logging\PersonalDataProcessor;
@@ -252,6 +253,7 @@ class Bitrix24ServiceProvider extends ServiceProvider
 
         $this->app->bind(AppSetupRunner::class, fn($app) => new AppSetupRunner($app->make('log')));
         $this->app->bind(AppTokenWriter::class, fn($app) => new AppTokenWriter($app->make('log')));
+        $this->app->bind(PortalDomainRename::class, fn($app) => PortalDomainRename::make($app->make('log')));
 
         $this->app->bind('appEvents', function () {
             $eventDispatcher = new EventDispatcherAdapter();
