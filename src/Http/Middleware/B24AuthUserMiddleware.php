@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
+use X3Group\Bitrix24\Support\PortalDomain;
 
 class B24AuthUserMiddleware
 {
@@ -68,13 +69,17 @@ class B24AuthUserMiddleware
                     ]),
                 );
 
+                // Домен из заголовка должен совпадать с доменом установки member_id.
+                $b24app = B24App::query()->where('member_id', $memberId)->first();
+                if (!PortalDomain::matches($b24app, $domain)) {
+                    throw new \Exception('domain does not match member_id');
+                }
+
                 $b24 = $factory->init(
                     applicationProfile: $applicationProfile,
                     authToken: $authToken,
-                    bitrix24DomainUrl: "https://{$request->header('X-b24api-domain')}",
-                    oauthServerUrl: OauthServerUrlResolver::orDefault(
-                        B24App::query()->where('member_id', $memberId)->value('oauth_server_url')
-                    ),
+                    bitrix24DomainUrl: "https://{$domain}",
+                    oauthServerUrl: OauthServerUrlResolver::orDefault($b24app->oauth_server_url),
                 );
 
                 $profile = $b24->getUserScope()->user()->current()->user();

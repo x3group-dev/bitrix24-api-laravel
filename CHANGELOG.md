@@ -3,6 +3,14 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — по [семантическому версионированию](https://semver.org/lang/ru/).
 
+## [3.6.2] — не выпущено
+
+### Изменено
+
+- `B24AuthUserMiddleware` и `B24AppUserMiddleware` проверяют, что домен портала в запросе
+  совпадает с `b24_apps.domain` для `member_id` (`Support\PortalDomain::matches()`). При
+  несовпадении или отсутствии строки `b24_apps` — `401`.
+
 ## [3.6.0] — не выпущено
 
 ### Изменено
