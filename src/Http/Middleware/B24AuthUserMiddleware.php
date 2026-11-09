@@ -12,6 +12,7 @@ use X3Group\Bitrix24\Application\Local\OauthServerUrlResolver;
 use X3Group\Bitrix24\Models\B24App;
 use X3Group\Bitrix24\Models\B24User;
 use X3Group\Bitrix24\Support\PortalDomain;
+use X3Group\Bitrix24\Support\PortalDomainRename;
 
 class B24AuthUserMiddleware
 {
@@ -71,7 +72,8 @@ class B24AuthUserMiddleware
 
                 // Домен из заголовка должен совпадать с доменом установки member_id.
                 $b24app = B24App::query()->where('member_id', $memberId)->first();
-                if (!PortalDomain::matches($b24app, $domain)) {
+                if (!PortalDomain::matches($b24app, $domain)
+                    && !($b24app !== null && app(PortalDomainRename::class)->confirm($b24app, $domain))) {
                     throw new \Exception('domain does not match member_id');
                 }
 

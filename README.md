@@ -204,6 +204,23 @@ if (AppUserReadyService::handles($request)) {
 **Важно:** `bitrix24:reanchor-app-token` и `bitrix24:backfill-app-owner` пропускают порталы
 с включённым `is_system_user` — их app-токен перепривязывать нельзя.
 
+## Смена адреса портала
+
+Домен портала хранится в `b24_apps.domain` и `b24_users.domain`. После переименования портала
+он обновляется двумя путями:
+
+- **Фоновый REST-вызов.** Старый домен отвечает `302` на новый, SDK повторяет вызов на новый
+  домен и отправляет `PortalDomainUrlChangedEvent`; `PortalDomainUrlChangedListener` пишет новый
+  домен в обе таблицы. Событие отправляется только при успешном повторе: с недействительным
+  токеном домен этим путём не обновится.
+- **Запрос от пользователя (с 3.6.3).** `B24AppUserMiddleware` и `B24AuthUserMiddleware` при
+  несовпадении домена запроса с `b24_apps.domain` вызывают `Support\PortalDomainRename`: тот
+  отправляет `POST https://<домен из b24_apps>/rest/app.info` без перехода по редиректам. Если
+  ответ — `302` на домен из запроса, новый домен записывается в обе таблицы по `member_id` и
+  запрос продолжается; иначе — `401`, как раньше. Домен из запроса сам по себе не запрашивается.
+
+В лог пишутся `info` `portal domain renamed` и `notice` `portal domain rename not confirmed`.
+
 ## Консольные команды
 
 Пакет поставляет три artisan-команды: `bitrix24:backfill-app-owner`, `bitrix24:reanchor-app-token`
